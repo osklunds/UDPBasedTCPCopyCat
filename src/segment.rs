@@ -61,9 +61,9 @@ impl Segment {
         let mut encoded = Vec::new();
 
         let mut first_byte: u8 = 0;
-        first_byte |= (self.syn as u8) << 0;
-        first_byte |= (self.ack as u8) << 1;
-        first_byte |= (self.fin as u8) << 2;
+        first_byte |= (self.syn as u8) << 7;
+        first_byte |= (self.ack as u8) << 6;
+        first_byte |= (self.fin as u8) << 5;
         encoded.push(first_byte);
 
         encoded.extend_from_slice(&self.seq_num.to_be_bytes());

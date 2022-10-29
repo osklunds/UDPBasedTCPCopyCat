@@ -2,12 +2,12 @@ use super::*;
 
 #[test]
 fn test_enc_no_flags() {
-    test_enc_flags_helper(false, false, false, 0)
+    test_enc_flags_helper(false, false, false, 0b0000_0000)
 }
 
 #[test]
 fn test_enc_all_flags() {
-    test_enc_flags_helper(true, true, true, 7)
+    test_enc_flags_helper(true, true, true, 0b1110_0000)
 }
 
 fn test_enc_flags_helper(syn: bool, ack: bool, fin: bool, exp_byte: u8) {
