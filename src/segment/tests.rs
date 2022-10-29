@@ -171,13 +171,18 @@ fn test_enc_data_helper(data: &[u8]) {
 #[test]
 fn test_encode_decode() {
     for _ in 0..100 {
-        test_encode_decode_helper()        
+        test_encode_decode_helper(random_segment())        
     }
 }
 
-fn test_encode_decode_helper() {
+#[test]
+fn test_encode_decode_no_data() {
+    let seg = Segment::new(false, false, false, 0, 0, &[]);
+    test_encode_decode_helper(seg)
+}
+
+fn test_encode_decode_helper(seg: Segment) {
     // Arrange
-    let seg = random_segment();
     let enc = seg.encode();
 
     // Act
