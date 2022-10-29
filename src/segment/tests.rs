@@ -170,7 +170,7 @@ fn test_enc_data_helper(data: &[u8]) {
 
 #[test]
 fn test_encode_decode() {
-    for _i in 0..100 {
+    for _ in 0..100 {
         test_encode_decode_helper()        
     }
 }
@@ -199,4 +199,16 @@ fn random_segment() -> Segment {
     let data = (0..len).map(|_i| rand::random()).collect::<Vec<u8>>();
 
     Segment::new(syn, ack, fin, seq_num, ack_num, &data)
+}
+
+#[test]
+fn test_decode_too_short() {
+    // Arrange
+    let enc = vec![0,1,2];
+
+    // Act
+    let dec = Segment::decode(&enc);
+
+    // Assert
+    assert_eq!(None, dec);
 }
