@@ -137,16 +137,22 @@ fn test_enc_ack_num_helper(ack_num: u32, exp_enc: &[u8]) {
 }
 
 #[test]
-fn test_no_data() {
+fn test_enc_no_data() {
     let data = [];
     test_enc_data_helper(&data)
 }
 
 #[test]
-fn test_long_data() {
+fn test_enc_long_data() {
     let data = (0u32..10000)
         .map(|i| ((i % 300) % 256) as u8)
         .collect::<Vec<u8>>();
+    test_enc_data_helper(&data)
+}
+
+#[test]
+fn test_enc_trailing_and_leading_zeros_data() {
+    let data = [0,0,0,0,1,2,3,0,0];
     test_enc_data_helper(&data)
 }
 
