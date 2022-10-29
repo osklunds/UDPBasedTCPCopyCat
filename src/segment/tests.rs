@@ -155,7 +155,7 @@ fn test_enc_data_helper(data: &[u8]) {
     let seg = Segment::new(false, false, false, 123, 100, data);
 
     // Act
-    let enc = seg.encode();
+        let enc = seg.encode();
 
     // Assert
     let exp_len = 9 + data.len();
