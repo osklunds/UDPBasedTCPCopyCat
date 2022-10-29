@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests;
 
+#[derive(Eq, PartialEq, Debug)]
 pub struct Segment {
     syn: bool,
     ack: bool,
@@ -71,5 +72,27 @@ impl Segment {
         encoded.extend_from_slice(&self.data);
 
         encoded
+    }
+
+    pub fn decode(raw_data: &[u8]) -> Option<Segment> {
+        let first_byte = raw_data[0];
+        let syn = (first_byte & 0b1000_0000) != 0;
+        let ack = (first_byte & 0b0100_0000) != 0;
+        let fin = (first_byte & 0b0010_0000) != 0;
+
+        let seq_num = u32::from_be_bytes(raw_data[1..5].try_into().unwrap());
+        let ack_num = u32::from_be_bytes(raw_data[5..9].try_into().unwrap());
+
+        let data = raw_data[9..].to_vec();
+
+        let seg = Segment {
+            syn,
+            ack,
+            fin,
+            seq_num,
+            ack_num,
+            data
+        };
+        Some(seg)
     }
 }

@@ -150,12 +150,14 @@ fn test_long_data() {
     test_enc_data_helper(&data)
 }
 
+// TOOD: Trailing and leading 0s
+
 fn test_enc_data_helper(data: &[u8]) {
     // Arrange
     let seg = Segment::new(false, false, false, 123, 100, data);
 
     // Act
-        let enc = seg.encode();
+    let enc = seg.encode();
 
     // Assert
     let exp_len = 9 + data.len();
@@ -164,4 +166,18 @@ fn test_enc_data_helper(data: &[u8]) {
     assert_eq!(&enc[1..5], vec![0, 0, 0, 123]);
     assert_eq!(&enc[5..9], vec![0, 0, 0, 100]);
     assert_eq!(&enc[9..exp_len], data);
+}
+
+#[test]
+fn test_encode_decode() {
+    // Arrange
+    let data = vec![1,2,3];
+    let seg = Segment::new(false, false, false, 123, 100, &data);
+    let enc = seg.encode();
+
+    // Act
+    let dec = Segment::decode(&enc);
+
+    // Assert
+    assert_eq!(Some(seg), dec);
 }
