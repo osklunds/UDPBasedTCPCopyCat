@@ -135,3 +135,21 @@ fn test_enc_ack_num_helper(ack_num: u32, exp_enc: &[u8]) {
     assert_eq!(&enc[5..9], exp_enc);
     assert_eq!(&enc[9..exp_len], &data);
 }
+
+#[test]
+fn test_no_data() {
+    // Arrange
+    let data = vec![];
+    let seg = Segment::new(false, false, false, 123, 100, &data);
+
+    // Act
+    let enc = seg.encode();
+
+    // Assert
+    let exp_len = 9;
+    assert_eq!(enc.len(), exp_len);
+    assert_eq!(enc[0], 0b0000_0000);
+    assert_eq!(&enc[1..5], vec![0, 0, 0, 123]);
+    assert_eq!(&enc[5..9], vec![0, 0, 0, 100]);
+}
+
