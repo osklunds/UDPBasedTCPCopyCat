@@ -156,8 +156,6 @@ fn test_enc_trailing_and_leading_zeros_data() {
     test_enc_data_helper(&data)
 }
 
-// TOOD: Trailing and leading 0s
-
 fn test_enc_data_helper(data: &[u8]) {
     // Arrange
     let seg = Segment::new(false, false, false, 123, 100, data);
