@@ -141,13 +141,13 @@ impl ClientStream {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        unimplemented!()
+        self.udp_socket.recv(buf)
     }
 }
 
 impl ServerStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        unimplemented!()
+        self.udp_socket.send(buf)
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
