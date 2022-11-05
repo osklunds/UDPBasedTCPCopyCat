@@ -3,6 +3,7 @@ mod tests;
 
 use std::io::Result;
 use std::net::*;
+use std::str;
 use std::thread;
 
 pub struct Listener {
@@ -38,11 +39,20 @@ impl Listener {
     }
 
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
-        // TODO: Read from udp_socket and figure out src addr
-        let peer_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
+        let mut buf = [0; 4096];
 
-        let stream = Stream::accept(peer_addr).unwrap();
-        Ok((stream, peer_addr))
+        let (amt, peer_addr) = self.udp_socket.recv_from(&mut buf).unwrap();
+
+        let string = str::from_utf8(&buf[0..amt]).unwrap();
+
+        if string == "syn" {
+            println!("Got syn from {:?}", peer_addr);
+            let stream = Stream::accept(peer_addr).unwrap();
+            Ok((stream, peer_addr))
+        } else {
+            println!("non-syn received {:?}", string);
+            unimplemented!()
+        }
     }
 }
 
@@ -53,6 +63,8 @@ impl Stream {
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
                 UdpSocket::connect(&udp_socket, peer_addr).unwrap();
+
+                udp_socket.send("syn".as_bytes());
 
                 let stream = ClientStream { udp_socket };
 
