@@ -4,10 +4,11 @@ mod tests;
 use std::io::Result;
 use std::net::*;
 use std::str;
+use std::sync::Arc;
 use std::thread;
 
 pub struct Listener {
-    udp_socket: UdpSocket,
+    udp_socket: Arc<UdpSocket>,
 }
 
 pub struct Stream {
@@ -20,11 +21,13 @@ enum StreamInner {
 }
 
 struct ServerStream {
-    udp_socket: UdpSocket,
+    udp_socket: Arc<UdpSocket>,
+    peer_addr: SocketAddr,
 }
 
 struct ClientStream {
     udp_socket: UdpSocket,
+    peer_addr: SocketAddr,
 }
 
 impl Listener {
@@ -32,7 +35,9 @@ impl Listener {
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
                 println!("Listener started");
-                let listener = Listener { udp_socket };
+                let listener = Listener {
+                    udp_socket: Arc::new(udp_socket),
+                };
                 Ok(listener)
             }
             Err(err) => Err(err),
@@ -48,7 +53,9 @@ impl Listener {
 
         if string == "syn" {
             println!("Got syn from {:?}", peer_addr);
-            let stream = Stream::accept(peer_addr).unwrap();
+            let stream =
+                Stream::accept(Arc::clone(&self.udp_socket), peer_addr)
+                    .unwrap();
             Ok((stream, peer_addr))
         } else {
             println!("non-syn received {:?}", string);
@@ -58,9 +65,10 @@ impl Listener {
 }
 
 impl Stream {
-    pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
+    pub fn connect<A: ToSocketAddrs>(to_peer_addr: A) -> Result<Stream> {
         println!("connect called");
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
@@ -73,7 +81,10 @@ impl Stream {
 
                 if string == "ack" {
                     println!("got ack");
-                    let stream = ClientStream { udp_socket };
+                    let stream = ClientStream {
+                        udp_socket,
+                        peer_addr,
+                    };
                     Ok(Self::pack_client_stream(stream))
                 } else {
                     println!("got non-ack");
@@ -90,20 +101,20 @@ impl Stream {
         }
     }
 
-    fn accept<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
-        let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-        match UdpSocket::bind(local_addr) {
-            Ok(udp_socket) => {
-                UdpSocket::connect(&udp_socket, peer_addr).unwrap();
+    fn accept<A: ToSocketAddrs>(
+        udp_socket: Arc<UdpSocket>,
+        to_peer_addr: A,
+    ) -> Result<Stream> {
+        let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
-                udp_socket.send("ack".as_bytes()).unwrap();
+        udp_socket.send_to("ack".as_bytes(), peer_addr).unwrap();
 
-                let stream = ServerStream { udp_socket };
+        let stream = ServerStream {
+            udp_socket,
+            peer_addr,
+        };
 
-                Ok(Self::pack_server_stream(stream))
-            }
-            Err(err) => Err(err),
-        }
+        Ok(Self::pack_server_stream(stream))
     }
 
     fn pack_server_stream(server_stream: ServerStream) -> Stream {
@@ -137,7 +148,8 @@ impl Stream {
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        unimplemented!()
+        println!("client write to {:?}", self.peer_addr);
+        self.udp_socket.send_to(buf, self.peer_addr)
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
@@ -147,10 +159,11 @@ impl ClientStream {
 
 impl ServerStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.udp_socket.send(buf)
+        self.udp_socket.send_to(buf, self.peer_addr)
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        unimplemented!()
+        println!("server read from {:?}", self.udp_socket.local_addr());
+        self.udp_socket.recv(buf)
     }
 }
