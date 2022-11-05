@@ -111,4 +111,46 @@ impl Stream {
             stream_inner: StreamInner::Server(server_stream),
         }
     }
+
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        match &mut self.stream_inner {
+            StreamInner::Client(client_stream) => {
+                ClientStream::write(client_stream, buf)
+            }
+            StreamInner::Server(server_stream) => {
+                ServerStream::write(server_stream, buf)
+            }
+        }
+    }
+
+    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        match &mut self.stream_inner {
+            StreamInner::Client(client_stream) => {
+                ClientStream::read(client_stream, buf)
+            }
+            StreamInner::Server(server_stream) => {
+                ServerStream::read(server_stream, buf)
+            }
+        }
+    }
+}
+
+impl ClientStream {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        unimplemented!()
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        unimplemented!()
+    }
+}
+
+impl ServerStream {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        unimplemented!()
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        unimplemented!()
+    }
 }
