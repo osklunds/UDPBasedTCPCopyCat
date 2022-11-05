@@ -57,20 +57,36 @@ use crate::segment::Segment;
 // }
 
 #[test]
-fn test_client_connect_syn_sent() {
-    // Arrange
+fn test_client_connect_full_handshake() {
     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
     let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
 
-    // Act
+    // Connect
     let _client_stream = Stream::connect(&server_addr).unwrap();
 
-    // Assert
+    // Receive SYN
     let mut buf = [0; 4096];
-    let amt = server_udp_socket.recv(&mut buf).unwrap();
+    let (amt_syn, client_addr_syn) =
+        server_udp_socket.recv_from(&mut buf).unwrap();
+    let syn = Segment::decode(&buf[0..amt_syn]).unwrap();
+    assert_is_handshake_syn(&syn);
 
-    let segment = Segment::decode(&buf[0..amt]).unwrap();
-    assert_is_handshake_syn(&segment);
+    // Send SYN-ACK
+    let seq_num = rand::random();
+    let syn_ack =
+        Segment::new(true, true, false, seq_num, syn.seq_num() + 1, &vec![]);
+    let encoded_syn_ack = syn_ack.encode();
+    server_udp_socket
+        .send_to(&encoded_syn_ack, client_addr_syn)
+        .unwrap();
+
+    // Receive ACK
+    let (amt_ack, client_addr_ack) =
+        server_udp_socket.recv_from(&mut buf).unwrap();
+    let ack = Segment::decode(&buf[0..amt_ack]).unwrap();
+    assert_is_handshake_ack(&ack);
+    assert_eq!(seq_num + 1, ack.ack_num());
+    assert_eq!(client_addr_syn, client_addr_ack);
 }
 
 fn assert_is_handshake_syn(segment: &Segment) {
@@ -78,41 +94,6 @@ fn assert_is_handshake_syn(segment: &Segment) {
     assert_eq!(false, segment.ack());
     assert_eq!(false, segment.fin());
     assert_eq!(0, segment.data().len());
-}
-
-#[test]
-fn test_client_connect_full_handshake() {
-    // Arrange
-    let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
-    let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
-
-    let _client_stream = Stream::connect(&server_addr).unwrap();
-
-    let mut buf = [0; 4096];
-    let (amt_syn, client_addr_syn) =
-        server_udp_socket.recv_from(&mut buf).unwrap();
-
-    let syn = Segment::decode(&buf[0..amt_syn]).unwrap();
-    assert_is_handshake_syn(&syn);
-
-    let seq_num = rand::random();
-    let syn_ack =
-        Segment::new(true, true, false, seq_num, syn.seq_num() + 1, &vec![]);
-    let encoded_syn_ack = syn_ack.encode();
-
-    // Act
-    server_udp_socket
-        .send_to(&encoded_syn_ack, client_addr_syn)
-        .unwrap();
-
-    // Assert
-    let (amt_ack, client_addr_ack) =
-        server_udp_socket.recv_from(&mut buf).unwrap();
-
-    let ack = Segment::decode(&buf[0..amt_ack]).unwrap();
-    assert_is_handshake_ack(&ack);
-    assert_eq!(seq_num + 1, ack.ack_num());
-    assert_eq!(client_addr_syn, client_addr_ack);
 }
 
 fn assert_is_handshake_ack(segment: &Segment) {
