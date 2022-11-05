@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests;
 
+// TODO: Idea: only expose enums for syn, synack, etc
 #[derive(Eq, PartialEq, Debug)]
 pub struct Segment {
     syn: bool,
@@ -32,6 +33,21 @@ impl Segment {
 
             data: data.to_vec(),
         }
+    }
+
+    pub fn new_syn() -> Segment {
+        Segment {
+            syn: true,
+            ack: false,
+            fin: false,
+            seq_num: rand::random(),
+            ack_num: 0,
+            data: vec![],
+        }
+    }
+
+    pub fn is_syn(&self) -> bool {
+        self.syn && !self.ack && !self.fin && self.data.len() == 0
     }
 
     pub fn syn(&self) -> bool {

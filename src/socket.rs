@@ -4,8 +4,11 @@ mod tests;
 use std::io::Result;
 use std::net::*;
 use std::str;
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
+
+use crate::segment::Segment;
 
 pub struct Listener {
     udp_socket: Arc<UdpSocket>,
@@ -26,8 +29,8 @@ struct ServerStream {
 }
 
 struct ClientStream {
-    udp_socket: UdpSocket,
-    peer_addr: SocketAddr,
+    read_rx: Receiver<()>,
+    write_tx: Sender<()>,
 }
 
 impl Listener {
@@ -70,26 +73,32 @@ impl Stream {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
+        let (_read_tx, read_rx) = mpsc::channel();
+        let (write_tx, _write_rx) = mpsc::channel();
+
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
-                udp_socket.send_to("syn".as_bytes(), peer_addr).unwrap();
-                println!("syn sent");
+                thread::spawn(move || {
+                    let syn = Segment::new_syn();
+                    let encoded_syn = Segment::encode(&syn);
 
-                let mut buf = [0; 4096];
-                let amt = udp_socket.recv(&mut buf).unwrap();
-                let string = str::from_utf8(&buf[0..amt]).unwrap();
+                    udp_socket.send_to(&encoded_syn, peer_addr).unwrap();
+                    println!("syn sent");
 
-                if string == "ack" {
-                    println!("got ack");
-                    let stream = ClientStream {
-                        udp_socket,
-                        peer_addr,
-                    };
-                    Ok(Self::pack_client_stream(stream))
-                } else {
-                    println!("got non-ack");
-                    unimplemented!()
-                }
+                    let mut buf = [0; 4096];
+                    let amt = udp_socket.recv(&mut buf).unwrap();
+                    let string = str::from_utf8(&buf[0..amt]).unwrap();
+
+                    if string == "ack" {
+                        println!("got ack");
+                    } else {
+                        println!("got non-ack");
+                    }
+
+                    loop {}
+                });
+                let stream = ClientStream { read_rx, write_tx };
+                Ok(Self::pack_client_stream(stream))
             }
             Err(err) => Err(err),
         }
@@ -147,13 +156,15 @@ impl Stream {
 }
 
 impl ClientStream {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        println!("client write to {:?}", self.peer_addr);
-        self.udp_socket.send_to(buf, self.peer_addr)
+    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
+        unimplemented!()
+        // println!("client write to {:?}", self.peer_addr);
+        // self.udp_socket.send_to(buf, self.peer_addr)
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        self.udp_socket.recv(buf)
+    fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
+        unimplemented!()
+        // self.udp_socket.recv(buf)
     }
 }
 
