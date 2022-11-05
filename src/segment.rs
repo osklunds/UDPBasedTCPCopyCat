@@ -35,21 +35,6 @@ impl Segment {
         }
     }
 
-    pub fn new_syn() -> Segment {
-        Segment {
-            syn: true,
-            ack: false,
-            fin: false,
-            seq_num: rand::random(),
-            ack_num: 0,
-            data: vec![],
-        }
-    }
-
-    pub fn is_syn(&self) -> bool {
-        self.syn && !self.ack && !self.fin && self.data.len() == 0
-    }
-
     pub fn syn(&self) -> bool {
         self.syn
     }

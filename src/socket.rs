@@ -79,21 +79,32 @@ impl Stream {
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
                 thread::spawn(move || {
-                    let syn = Segment::new_syn();
+                    let seq_num = rand::random();
+                    let syn =
+                        Segment::new(true, false, false, seq_num, 0, &vec![]);
                     let encoded_syn = Segment::encode(&syn);
 
                     udp_socket.send_to(&encoded_syn, peer_addr).unwrap();
-                    println!("syn sent");
 
                     let mut buf = [0; 4096];
                     let amt = udp_socket.recv(&mut buf).unwrap();
-                    let string = str::from_utf8(&buf[0..amt]).unwrap();
 
-                    if string == "ack" {
-                        println!("got ack");
-                    } else {
-                        println!("got non-ack");
-                    }
+                    let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
+
+                    // TODO: Handle error instead
+                    assert_eq!(seq_num + 1, syn_ack.ack_num());
+
+                    let ack = Segment::new(
+                        false,
+                        true,
+                        false,
+                        seq_num + 1,
+                        syn_ack.seq_num() + 1,
+                        &vec![],
+                    );
+                    let encoded_ack = Segment::encode(&ack);
+
+                    udp_socket.send_to(&encoded_ack, peer_addr).unwrap();
 
                     loop {}
                 });
