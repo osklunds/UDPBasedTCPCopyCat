@@ -16,7 +16,6 @@ fn test() {
 
     let client_socket = Stream::connect(server_addr);
     println!("{:?}", "connected");
-    println!("{:?}", "connected");
 
     server_thread.join().unwrap();
 

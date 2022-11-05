@@ -28,9 +28,10 @@ struct ClientStream {
 }
 
 impl Listener {
-    pub fn bind<A: ToSocketAddrs>(addr: A) -> Result<Listener> {
-        match UdpSocket::bind(addr) {
+    pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
+        match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
+                println!("Listener started");
                 let listener = Listener { udp_socket };
                 Ok(listener)
             }
@@ -39,8 +40,8 @@ impl Listener {
     }
 
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
+        println!("accept called");
         let mut buf = [0; 4096];
-
         let (amt, peer_addr) = self.udp_socket.recv_from(&mut buf).unwrap();
 
         let string = str::from_utf8(&buf[0..amt]).unwrap();
@@ -58,17 +59,26 @@ impl Listener {
 
 impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
+        println!("connect called");
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
-                UdpSocket::connect(&udp_socket, peer_addr).unwrap();
+                udp_socket.send_to("syn".as_bytes(), peer_addr).unwrap();
+                println!("syn sent");
 
-                udp_socket.send("syn".as_bytes());
+                let mut buf = [0; 4096];
+                let amt = udp_socket.recv(&mut buf).unwrap();
+                let string = str::from_utf8(&buf[0..amt]).unwrap();
 
-                let stream = ClientStream { udp_socket };
-
-                Ok(Self::pack_client_stream(stream))
+                if string == "ack" {
+                    println!("got ack");
+                    let stream = ClientStream { udp_socket };
+                    Ok(Self::pack_client_stream(stream))
+                } else {
+                    println!("got non-ack");
+                    unimplemented!()
+                }
             }
             Err(err) => Err(err),
         }
@@ -82,10 +92,11 @@ impl Stream {
 
     fn accept<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
                 UdpSocket::connect(&udp_socket, peer_addr).unwrap();
+
+                udp_socket.send("ack".as_bytes()).unwrap();
 
                 let stream = ServerStream { udp_socket };
 
