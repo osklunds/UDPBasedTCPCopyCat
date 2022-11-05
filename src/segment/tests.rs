@@ -152,7 +152,7 @@ fn test_enc_long_data() {
 
 #[test]
 fn test_enc_trailing_and_leading_zeros_data() {
-    let data = [0,0,0,0,1,2,3,0,0];
+    let data = [0, 0, 0, 0, 1, 2, 3, 0, 0];
     test_enc_data_helper(&data)
 }
 
@@ -175,7 +175,7 @@ fn test_enc_data_helper(data: &[u8]) {
 #[test]
 fn test_encode_decode() {
     for _ in 0..100 {
-        test_encode_decode_helper(random_segment())        
+        test_encode_decode_helper(random_segment())
     }
 }
 
@@ -213,7 +213,7 @@ fn random_segment() -> Segment {
 #[test]
 fn test_decode_too_short() {
     // Arrange
-    let enc = vec![0,1,2];
+    let enc = vec![0, 1, 2];
 
     // Act
     let dec = Segment::decode(&enc);

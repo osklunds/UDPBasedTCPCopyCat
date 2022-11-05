@@ -81,8 +81,10 @@ impl Segment {
             let ack = (first_byte & 0b0100_0000) != 0;
             let fin = (first_byte & 0b0010_0000) != 0;
 
-            let seq_num = u32::from_be_bytes(raw_data[1..5].try_into().unwrap());
-            let ack_num = u32::from_be_bytes(raw_data[5..9].try_into().unwrap());
+            let seq_num =
+                u32::from_be_bytes(raw_data[1..5].try_into().unwrap());
+            let ack_num =
+                u32::from_be_bytes(raw_data[5..9].try_into().unwrap());
 
             let data = raw_data[9..].to_vec();
 
@@ -92,7 +94,7 @@ impl Segment {
                 fin,
                 seq_num,
                 ack_num,
-                data
+                data,
             };
             Some(seg)
         } else {
