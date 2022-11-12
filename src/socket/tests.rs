@@ -66,10 +66,14 @@ struct State {
 
 #[test]
 fn test_connect() {
+    setup_connected_client();
+}
+
+fn setup_connected_client() -> State {
     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
     let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
 
-    connect(server_udp_socket);
+    connect(server_udp_socket)
 }
 
 fn connect(server_udp_socket: UdpSocket) -> State {
@@ -104,14 +108,8 @@ fn connect(server_udp_socket: UdpSocket) -> State {
 
 #[test]
 fn test_client_read_once() {
-    // Start server udp socket
-    let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
-    let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
+    let mut state = setup_connected_client();
 
-    // Connect the client
-    let mut state = connect(server_udp_socket);
-
-    // Read
     read(&mut state, "some data".as_bytes());
 }
 
@@ -133,14 +131,8 @@ fn read(state: &mut State, data: &[u8]) {
 
 #[test]
 fn test_client_read_twice() {
-    // Start server udp socket
-    let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
-    let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
+    let mut state = setup_connected_client();
 
-    // Connect the client
-    let mut state = connect(server_udp_socket);
-
-    // Read
     read(&mut state, "some data".as_bytes());
     read(&mut state, "some other data".as_bytes());
 }
