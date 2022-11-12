@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests;
 
+use futures::executor::block_on;
 use std::io::Result;
 use std::net::*;
 use std::str;
@@ -232,6 +233,13 @@ impl ServerStream {
 }
 
 fn connected_loop(state: State) -> State {
+    let future_recv_socket = async_recv_socket(state);
+    let _future_recv_write_tx = async_recv_write_rx(state);
+
+    block_on(future_recv_socket)
+}
+
+async fn async_recv_socket(state: State) -> State {
     recv_socket(state)
 }
 
@@ -255,6 +263,10 @@ fn recv_socket(mut state: State) -> State {
 
     state.read_tx.send(data).unwrap();
     state
+}
+
+async fn async_recv_write_rx(state: State) -> State {
+    recv_write_rx(state)
 }
 
 fn recv_write_rx(state: State) -> State {
