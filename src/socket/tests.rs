@@ -78,14 +78,7 @@ fn client_connect(
     // Send SYN-ACK
     let mut server_seq_num = rand::random();
     let client_seq_num = syn.seq_num() + 1;
-    let syn_ack = Segment::new(
-        true,
-        true,
-        false,
-        server_seq_num,
-        client_seq_num,
-        &vec![],
-    );
+    let syn_ack = Segment::new(SynAck, server_seq_num, client_seq_num, &vec![]);
     send_segment(&server_udp_socket, client_addr, &syn_ack);
 
     // Receive ACK
@@ -98,16 +91,12 @@ fn client_connect(
 }
 
 fn assert_is_handshake_syn(segment: &Segment) {
-    assert_eq!(true, segment.syn());
-    assert_eq!(false, segment.ack());
-    assert_eq!(false, segment.fin());
+    assert_eq!(Syn, segment.kind());
     assert_eq!(0, segment.data().len());
 }
 
 fn assert_is_handshake_ack(segment: &Segment) {
-    assert_eq!(false, segment.syn());
-    assert_eq!(true, segment.ack());
-    assert_eq!(false, segment.fin());
+    assert_eq!(Ack, segment.kind());
     assert_eq!(0, segment.data().len());
 }
 
@@ -120,15 +109,13 @@ fn test_client_recv() {
         client_connect(&server_udp_socket);
 
     let data = "some data".as_bytes();
-    let seg =
-        Segment::new(false, true, false, server_num, client_num, data.clone());
+    let seg = Segment::new(Ack, server_num, client_num, data.clone());
 
     send_segment(&server_udp_socket, client_addr, &seg);
     server_num += data.len() as u32;
 
     let segment = recv_segment(&server_udp_socket, client_addr);
-    let exp_ack_segment =
-        Segment::new(false, true, false, client_num, server_num, &vec![]);
+    let exp_ack_segment = Segment::new(Ack, client_num, server_num, &vec![]);
     assert_eq!(exp_ack_segment, segment);
 }
 

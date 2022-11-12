@@ -8,6 +8,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
+use crate::segment::Kind::*;
 use crate::segment::Segment;
 
 pub struct Listener {
@@ -124,12 +125,14 @@ impl Stream {
     }
 
     fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
+        // Send SYN
         let seq_num = rand::random();
-        let syn = Segment::new(true, false, false, seq_num, 0, &vec![]);
+        let syn = Segment::new(Syn, seq_num, 0, &vec![]);
         let encoded_syn = Segment::encode(&syn);
 
         udp_socket.send(&encoded_syn).unwrap();
 
+        // Receive SYN-ACK
         let mut buf = [0; 4096];
         let amt = udp_socket.recv(&mut buf).unwrap();
 
@@ -138,15 +141,13 @@ impl Stream {
         let new_seq_num = seq_num + 1;
         // TODO: Handle error instead
         assert_eq!(new_seq_num, syn_ack.ack_num());
-        assert_eq!(true, syn_ack.syn());
-        assert_eq!(true, syn_ack.ack());
-        assert_eq!(false, syn_ack.fin());
+        assert_eq!(SynAck, syn_ack.kind());
         assert_eq!(0, syn_ack.data().len());
 
         let ack_num = syn_ack.seq_num() + 1;
 
-        let ack =
-            Segment::new(false, true, false, new_seq_num, ack_num, &vec![]);
+        // Send ACK
+        let ack = Segment::new(Ack, new_seq_num, ack_num, &vec![]);
         let encoded_ack = Segment::encode(&ack);
 
         udp_socket.send(&encoded_ack).unwrap();
@@ -238,8 +239,7 @@ fn connected_loop(state: &mut State) {
 
     state.ack_num += len;
 
-    let ack =
-        Segment::new(false, true, false, state.seq_num, state.ack_num, &vec![]);
+    let ack = Segment::new(Ack, state.seq_num, state.ack_num, &vec![]);
     send_segment(&udp_socket, peer_addr, &ack);
 }
 
