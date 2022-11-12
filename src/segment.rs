@@ -121,4 +121,8 @@ impl Segment {
             None
         }
     }
+
+    pub fn to_data(self) -> Vec<u8> {
+        self.data
+    }
 }

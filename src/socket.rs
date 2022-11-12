@@ -30,7 +30,7 @@ struct ServerStream {
 }
 
 struct ClientStream {
-    read_rx: Receiver<()>,
+    read_rx: Receiver<Vec<u8>>,
     write_tx: Sender<()>,
 }
 
@@ -38,7 +38,7 @@ struct State {
     seq_num: u32,
     ack_num: u32,
     udp_socket: UdpSocket,
-    read_tx: Sender<()>,
+    read_tx: Sender<Vec<u8>>,
     write_rx: Receiver<()>,
 }
 
@@ -106,7 +106,7 @@ impl Stream {
 
     fn client(
         udp_socket: UdpSocket,
-        read_tx: Sender<()>,
+        read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<()>,
     ) {
         let (seq_num, ack_num) = Self::client_handshake(&udp_socket);
@@ -207,9 +207,16 @@ impl ClientStream {
         // self.udp_socket.send_to(buf, self.peer_addr)
     }
 
-    fn read(&mut self, _buf: &mut [u8]) -> Result<usize> {
-        unimplemented!()
-        // self.udp_socket.recv(buf)
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let data = self.read_rx.recv().unwrap();
+        let len = data.len();
+
+        // TODO: Solve the horrible efficiency
+        for i in 0..len {
+            buf[i] = data[i];
+        }
+
+        Ok(len)
     }
 }
 
@@ -234,13 +241,15 @@ fn connected_loop(state: &mut State) {
     // The segment should contain the next expected data
     assert_eq!(state.ack_num, segment.seq_num());
 
-    let data = segment.data();
+    let data = segment.to_data();
     let len = data.len() as u32;
 
     state.ack_num += len;
 
     let ack = Segment::new(Ack, state.seq_num, state.ack_num, &vec![]);
     send_segment(&udp_socket, peer_addr, &ack);
+
+    state.read_tx.send(data).unwrap();
 }
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {

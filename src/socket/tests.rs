@@ -73,7 +73,7 @@ fn client_connect(
 
     // Receive SYN
     let (syn, client_addr) = recv_segment_from(&server_udp_socket);
-    assert_is_handshake_syn(&syn);
+    assert_eq!(Syn, syn.kind());
 
     // Send SYN-ACK
     let mut server_seq_num = rand::random();
@@ -83,40 +83,40 @@ fn client_connect(
 
     // Receive ACK
     let ack = recv_segment(&server_udp_socket, client_addr);
-    assert_is_handshake_ack(&ack);
+    assert_eq!(Ack, ack.kind());
     server_seq_num += 1;
     assert_eq!(server_seq_num, ack.ack_num());
 
     (client_stream, client_addr, server_seq_num, client_seq_num)
 }
 
-fn assert_is_handshake_syn(segment: &Segment) {
-    assert_eq!(Syn, segment.kind());
-    assert_eq!(0, segment.data().len());
-}
-
-fn assert_is_handshake_ack(segment: &Segment) {
-    assert_eq!(Ack, segment.kind());
-    assert_eq!(0, segment.data().len());
-}
-
 #[test]
-fn test_client_recv() {
+fn test_client_read() {
+    // Start server udp socket
     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
     let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
 
-    let (_client_stream, client_addr, mut server_num, client_num) =
+    // Connect the client
+    let (mut client_stream, client_addr, mut server_num, client_num) =
         client_connect(&server_udp_socket);
 
+    // Send from the server
     let data = "some data".as_bytes();
-    let seg = Segment::new(Ack, server_num, client_num, data.clone());
+    let send_seg = Segment::new(Ack, server_num, client_num, data.clone());
 
-    send_segment(&server_udp_socket, client_addr, &seg);
+    send_segment(&server_udp_socket, client_addr, &send_seg);
     server_num += data.len() as u32;
 
-    let segment = recv_segment(&server_udp_socket, client_addr);
-    let exp_ack_segment = Segment::new(Ack, client_num, server_num, &vec![]);
-    assert_eq!(exp_ack_segment, segment);
+    // Check that the server received an ACK
+    let recv_seg = recv_segment(&server_udp_socket, client_addr);
+    let exp_ack = Segment::new(Ack, client_num, server_num, &vec![]);
+    assert_eq!(exp_ack, recv_seg);
+
+    // Check that the client received the correct data
+    let mut buf = [0; 4096];
+    let amt = client_stream.read(&mut buf).unwrap();
+    let read_data = &buf[0..amt];
+    assert_eq!(data, read_data);
 }
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
