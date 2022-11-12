@@ -1,50 +1,51 @@
 #[cfg(test)]
 mod tests;
 
-// TODO: Idea: only expose enums for syn, synack, etc
+use self::Kind::*;
+use rand::distributions::{Distribution, Standard};
+use rand::Rng;
+
 #[derive(Eq, PartialEq, Debug)]
 pub struct Segment {
-    syn: bool,
-    ack: bool,
-    fin: bool,
-
+    kind: Kind,
     seq_num: u32,
     ack_num: u32,
-
     data: Vec<u8>,
 }
 
-impl Segment {
-    pub fn new(
-        syn: bool,
-        ack: bool,
-        fin: bool,
-        seq_num: u32,
-        ack_num: u32,
-        data: &[u8],
-    ) -> Segment {
-        Segment {
-            syn,
-            ack,
-            fin,
+#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+pub enum Kind {
+    Syn,
+    SynAck,
+    Ack,
+    Fin,
+    // TODO: FinAck?
+}
 
+impl Distribution<Kind> for Standard {
+    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Kind {
+        match rng.next_u32() % 4 {
+            0 => Syn,
+            1 => SynAck,
+            2 => Ack,
+            3 => Fin,
+            _ => unimplemented!(),
+        }
+    }
+}
+
+impl Segment {
+    pub fn new(kind: Kind, seq_num: u32, ack_num: u32, data: &[u8]) -> Segment {
+        Segment {
+            kind,
             seq_num,
             ack_num,
-
             data: data.to_vec(),
         }
     }
 
-    pub fn syn(&self) -> bool {
-        self.syn
-    }
-
-    pub fn ack(&self) -> bool {
-        self.ack
-    }
-
-    pub fn fin(&self) -> bool {
-        self.fin
+    pub fn kind(&self) -> Kind {
+        self.kind
     }
 
     pub fn seq_num(&self) -> u32 {
@@ -62,10 +63,14 @@ impl Segment {
     pub fn encode(&self) -> Vec<u8> {
         let mut encoded = Vec::new();
 
+        let syn = self.kind == Syn || self.kind == SynAck;
+        let ack = self.kind == SynAck || self.kind == Ack;
+        let fin = self.kind == Fin;
+
         let mut first_byte: u8 = 0;
-        first_byte |= (self.syn as u8) << 7;
-        first_byte |= (self.ack as u8) << 6;
-        first_byte |= (self.fin as u8) << 5;
+        first_byte |= (syn as u8) << 7;
+        first_byte |= (ack as u8) << 6;
+        first_byte |= (fin as u8) << 5;
         encoded.push(first_byte);
 
         encoded.extend_from_slice(&self.seq_num.to_be_bytes());
@@ -82,22 +87,36 @@ impl Segment {
             let ack = (first_byte & 0b0100_0000) != 0;
             let fin = (first_byte & 0b0010_0000) != 0;
 
-            let seq_num =
-                u32::from_be_bytes(raw_data[1..5].try_into().unwrap());
-            let ack_num =
-                u32::from_be_bytes(raw_data[5..9].try_into().unwrap());
-
-            let data = raw_data[9..].to_vec();
-
-            let seg = Segment {
-                syn,
-                ack,
-                fin,
-                seq_num,
-                ack_num,
-                data,
+            let maybe_kind = match (syn, ack, fin) {
+                (true, false, false) => Some(Syn),
+                (true, true, false) => Some(SynAck),
+                (false, true, false) => Some(Ack),
+                (false, false, true) => Some(Fin),
+                _ => None,
             };
-            Some(seg)
+
+            // TODO: Check that no data if Syn or SynAck, + tests
+            // TODO: Test that decoding fails if none of the above
+            // combinations
+
+            if let Some(kind) = maybe_kind {
+                let seq_num =
+                    u32::from_be_bytes(raw_data[1..5].try_into().unwrap());
+                let ack_num =
+                    u32::from_be_bytes(raw_data[5..9].try_into().unwrap());
+
+                let data = raw_data[9..].to_vec();
+
+                let seg = Segment {
+                    kind,
+                    seq_num,
+                    ack_num,
+                    data,
+                };
+                Some(seg)
+            } else {
+                None
+            }
         } else {
             None
         }

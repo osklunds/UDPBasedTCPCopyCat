@@ -1,34 +1,14 @@
 use super::*;
 
 #[test]
-fn test_enc_no_flags() {
-    test_enc_flags_helper(false, false, false, 0b0000_0000)
+fn test_enc_flags_syn() {
+    test_enc_flags_helper(Syn, 0b1000_0000)
 }
 
-#[test]
-fn test_enc_all_flags() {
-    test_enc_flags_helper(true, true, true, 0b1110_0000)
-}
-
-#[test]
-fn test_enc_syn_flag() {
-    test_enc_flags_helper(true, false, false, 0b1000_0000)
-}
-
-#[test]
-fn test_enc_ack_flag() {
-    test_enc_flags_helper(false, true, false, 0b0100_0000)
-}
-
-#[test]
-fn test_enc_fin_flag() {
-    test_enc_flags_helper(false, false, true, 0b0010_0000)
-}
-
-fn test_enc_flags_helper(syn: bool, ack: bool, fin: bool, exp_byte: u8) {
+fn test_enc_flags_helper(kind: Kind, exp_byte: u8) {
     // Arrange
     let data = vec![7, 8, 9];
-    let seg = Segment::new(syn, ack, fin, 123, 258, &data);
+    let seg = Segment::new(kind, 123, 258, &data);
 
     // Act
     let enc = seg.encode();
@@ -75,7 +55,7 @@ fn test_enc_seq_num_max() {
 fn test_enc_seq_num_helper(seq_num: u32, exp_enc: &[u8]) {
     // Arrange
     let data = vec![7, 8, 9];
-    let seg = Segment::new(false, true, false, seq_num, 258, &data);
+    let seg = Segment::new(Ack, seq_num, 258, &data);
 
     // Act
     let enc = seg.encode();
@@ -122,7 +102,7 @@ fn test_enc_ack_num_max() {
 fn test_enc_ack_num_helper(ack_num: u32, exp_enc: &[u8]) {
     // Arrange
     let data = vec![7, 8, 9];
-    let seg = Segment::new(false, true, false, 123, ack_num, &data);
+    let seg = Segment::new(Ack, 123, ack_num, &data);
 
     // Act
     let enc = seg.encode();
@@ -158,7 +138,7 @@ fn test_enc_trailing_and_leading_zeros_data() {
 
 fn test_enc_data_helper(data: &[u8]) {
     // Arrange
-    let seg = Segment::new(false, false, false, 123, 100, data);
+    let seg = Segment::new(Syn, 123, 100, data);
 
     // Act
     let enc = seg.encode();
@@ -166,7 +146,7 @@ fn test_enc_data_helper(data: &[u8]) {
     // Assert
     let exp_len = 9 + data.len();
     assert_eq!(enc.len(), exp_len);
-    assert_eq!(enc[0], 0b0000_0000);
+    assert_eq!(enc[0], 0b1000_0000);
     assert_eq!(&enc[1..5], vec![0, 0, 0, 123]);
     assert_eq!(&enc[5..9], vec![0, 0, 0, 100]);
     assert_eq!(&enc[9..exp_len], data);
@@ -181,7 +161,7 @@ fn test_encode_decode() {
 
 #[test]
 fn test_encode_decode_no_data() {
-    let seg = Segment::new(false, false, false, 0, 0, &[]);
+    let seg = Segment::new(Ack, 0, 0, &[]);
     test_encode_decode_helper(seg)
 }
 
@@ -197,17 +177,13 @@ fn test_encode_decode_helper(seg: Segment) {
 }
 
 fn random_segment() -> Segment {
-    let syn = rand::random();
-    let ack = rand::random();
-    let fin = rand::random();
-
+    let kind: Kind = rand::random();
     let seq_num = rand::random();
     let ack_num = rand::random();
-
     let len = rand::random::<u32>() % 1000;
     let data = (0..len).map(|_i| rand::random()).collect::<Vec<u8>>();
 
-    Segment::new(syn, ack, fin, seq_num, ack_num, &data)
+    Segment::new(kind, seq_num, ack_num, &data)
 }
 
 #[test]
