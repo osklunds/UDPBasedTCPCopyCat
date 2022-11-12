@@ -56,6 +56,14 @@ use crate::segment::Segment;
 //     ()
 // }
 
+struct State {
+    udp_socket: UdpSocket,
+    stream: Stream,
+    peer_addr: SocketAddr,
+    seq_num: u32,
+    ack_num: u32,
+}
+
 #[test]
 fn test_client_connect() {
     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
@@ -91,31 +99,39 @@ fn client_connect(
 }
 
 #[test]
-fn test_client_read() {
+fn test_client_read_once() {
     // Start server udp socket
     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
     let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
 
     // Connect the client
-    let (mut client_stream, client_addr, mut server_num, client_num) =
+    let (client_stream, client_addr, server_num, client_num) =
         client_connect(&server_udp_socket);
 
-    // Send from the server
-    let data = "some data".as_bytes();
-    let send_seg = Segment::new(Ack, server_num, client_num, data.clone());
+    let mut state = State {
+        udp_socket: server_udp_socket,
+        stream: client_stream,
+        peer_addr: client_addr,
+        seq_num: server_num,
+        ack_num: client_num,
+    };
 
-    send_segment(&server_udp_socket, client_addr, &send_seg);
-    server_num += data.len() as u32;
+    read(&mut state, "some data".as_bytes());
+}
+
+fn read(state: &mut State, data: &[u8]) {
+    // Send from the server
+    let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
+    send_segment(&state.udp_socket, state.peer_addr, &send_seg);
+    state.seq_num += data.len() as u32;
 
     // Check that the server received an ACK
-    let recv_seg = recv_segment(&server_udp_socket, client_addr);
-    let exp_ack = Segment::new(Ack, client_num, server_num, &vec![]);
+    let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
+    let exp_ack = Segment::new(Ack, state.ack_num, state.seq_num, &vec![]);
     assert_eq!(exp_ack, recv_seg);
 
     // Check that the client received the correct data
-    let mut buf = [0; 4096];
-    let amt = client_stream.read(&mut buf).unwrap();
-    let read_data = &buf[0..amt];
+    let read_data = read_stream(&mut state.stream);
     assert_eq!(data, read_data);
 }
 
@@ -138,4 +154,10 @@ fn send_segment(
 ) {
     let encoded_seq = segment.encode();
     udp_socket.send_to(&encoded_seq, peer_addr).unwrap();
+}
+
+fn read_stream(stream: &mut Stream) -> Vec<u8> {
+    let mut buf = [0; 4096];
+    let amt = stream.read(&mut buf).unwrap();
+    buf[0..amt].to_vec()
 }
