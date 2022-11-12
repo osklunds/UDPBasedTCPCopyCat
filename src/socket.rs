@@ -31,7 +31,7 @@ struct ServerStream {
 
 struct ClientStream {
     read_rx: Receiver<Vec<u8>>,
-    write_tx: Sender<()>,
+    write_tx: Sender<Vec<u8>>,
 }
 
 struct State {
@@ -39,7 +39,7 @@ struct State {
     ack_num: u32,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
-    write_rx: Receiver<()>,
+    write_rx: Receiver<Vec<u8>>,
 }
 
 impl Listener {
@@ -107,7 +107,7 @@ impl Stream {
     fn client(
         udp_socket: UdpSocket,
         read_tx: Sender<Vec<u8>>,
-        write_rx: Receiver<()>,
+        write_rx: Receiver<Vec<u8>>,
     ) {
         let (seq_num, ack_num) = Self::client_handshake(&udp_socket);
 
@@ -120,7 +120,7 @@ impl Stream {
         };
 
         loop {
-            connected_loop(&mut state);
+            state = connected_loop(state);
         }
     }
 
@@ -201,17 +201,17 @@ impl Stream {
 }
 
 impl ClientStream {
-    fn write(&mut self, _buf: &[u8]) -> Result<usize> {
-        unimplemented!()
-        // println!("client write to {:?}", self.peer_addr);
-        // self.udp_socket.send_to(buf, self.peer_addr)
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        self.write_tx.send(buf.to_vec()).unwrap();
+
+        Ok(buf.len())
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         let data = self.read_rx.recv().unwrap();
         let len = data.len();
 
-        // TODO: Solve the horrible efficiency
+        // TODO: Solve the horrible inefficiency
         for i in 0..len {
             buf[i] = data[i];
         }
@@ -231,7 +231,11 @@ impl ServerStream {
     }
 }
 
-fn connected_loop(state: &mut State) {
+fn connected_loop(state: State) -> State {
+    recv_socket(state)
+}
+
+fn recv_socket(mut state: State) -> State {
     let udp_socket = &state.udp_socket;
     let peer_addr = udp_socket.peer_addr().unwrap();
     let segment = recv_segment(udp_socket, peer_addr);
@@ -250,6 +254,17 @@ fn connected_loop(state: &mut State) {
     send_segment(&udp_socket, peer_addr, &ack);
 
     state.read_tx.send(data).unwrap();
+    state
+}
+
+fn recv_write_rx(state: State) -> State {
+    let data = state.write_rx.recv().unwrap();
+    let seg = Segment::new(Ack, state.seq_num, state.ack_num, &data);
+
+    let udp_socket = &state.udp_socket;
+    let peer_addr = udp_socket.peer_addr().unwrap();
+    send_segment(udp_socket, peer_addr, &seg);
+    state
 }
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {

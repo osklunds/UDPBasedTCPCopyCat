@@ -139,6 +139,41 @@ fn test_client_read_twice() {
     read(&mut state, "some other data");
 }
 
+#[test]
+fn test_client_write_once() {
+    let mut state = setup_connected_client();
+
+    write(&mut state, "some data");
+}
+
+fn write(state: &mut State, string: &str) {
+    let data = string.as_bytes();
+
+    // Send from the client
+    let written_len = state.stream.write(&data).unwrap();
+    let len = data.len();
+    assert_eq!(len, written_len);
+
+    // Check that the server received a segment with the data
+    let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
+    let exp_seg = Segment::new(Ack, state.ack_num, state.seq_num, &data);
+    assert_eq!(exp_seg, recv_seg);
+
+    // // Send from the server
+    // let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
+    // send_segment(&state.udp_socket, state.peer_addr, &send_seg);
+    // state.seq_num += data.len() as u32;
+
+    // // Check that the server received an ACK
+    // let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
+    // let exp_ack = Segment::new(Ack, state.ack_num, state.seq_num, &vec![]);
+    // assert_eq!(exp_ack, recv_seg);
+
+    // // Check that the client received the correct data
+    // let read_data = read_stream(&mut state.stream);
+    // assert_eq!(data, read_data);
+}
+
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
     let (seg, recv_addr) = recv_segment_from(udp_socket);
     assert_eq!(peer_addr, recv_addr);
