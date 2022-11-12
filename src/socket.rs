@@ -119,7 +119,7 @@ impl Stream {
         };
 
         loop {
-            state = Self::client_loop(state);
+            connected_loop(&mut state);
         }
     }
 
@@ -152,10 +152,6 @@ impl Stream {
         udp_socket.send(&encoded_ack).unwrap();
 
         (new_seq_num, ack_num)
-    }
-
-    fn client_loop(state: State) -> State {
-        state
     }
 
     fn accept<A: ToSocketAddrs>(
@@ -225,4 +221,40 @@ impl ServerStream {
         println!("server read from {:?}", self.udp_socket.local_addr());
         self.udp_socket.recv(buf)
     }
+}
+
+fn connected_loop(state: &mut State) {
+    let udp_socket = &state.udp_socket;
+    let peer_addr = udp_socket.peer_addr().unwrap();
+    let segment = recv_segment(udp_socket, peer_addr);
+
+    // The segment shouldn't ack something not sent
+    assert!(state.seq_num >= segment.ack_num());
+    // The segment should contain the next expected data
+    assert_eq!(state.ack_num, segment.seq_num());
+
+    let data = segment.data();
+    let len = data.len() as u32;
+
+    state.ack_num += len;
+
+    let ack =
+        Segment::new(false, true, false, state.seq_num, state.ack_num, &vec![]);
+    send_segment(&udp_socket, peer_addr, &ack);
+}
+
+fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
+    let mut buf = [0; 4096];
+    let (amt, recv_addr) = udp_socket.recv_from(&mut buf).unwrap();
+    assert_eq!(peer_addr, recv_addr);
+    Segment::decode(&buf[0..amt]).unwrap()
+}
+
+fn send_segment(
+    udp_socket: &UdpSocket,
+    _peer_addr: SocketAddr,
+    segment: &Segment,
+) {
+    let encoded_seq = segment.encode();
+    udp_socket.send(&encoded_seq).unwrap();
 }
