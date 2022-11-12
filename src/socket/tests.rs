@@ -110,10 +110,12 @@ fn connect(server_udp_socket: UdpSocket) -> State {
 fn test_client_read_once() {
     let mut state = setup_connected_client();
 
-    read(&mut state, "some data".as_bytes());
+    read(&mut state, "some data");
 }
 
-fn read(state: &mut State, data: &[u8]) {
+fn read(state: &mut State, string: &str) {
+    let data = string.as_bytes();
+
     // Send from the server
     let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
     send_segment(&state.udp_socket, state.peer_addr, &send_seg);
@@ -133,8 +135,8 @@ fn read(state: &mut State, data: &[u8]) {
 fn test_client_read_twice() {
     let mut state = setup_connected_client();
 
-    read(&mut state, "some data".as_bytes());
-    read(&mut state, "some other data".as_bytes());
+    read(&mut state, "some data");
+    read(&mut state, "some other data");
 }
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
