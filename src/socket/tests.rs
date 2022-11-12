@@ -111,6 +111,7 @@ fn test_client_read_once() {
     // Connect the client
     let mut state = connect(server_udp_socket);
 
+    // Read
     read(&mut state, "some data".as_bytes());
 }
 
@@ -128,6 +129,20 @@ fn read(state: &mut State, data: &[u8]) {
     // Check that the client received the correct data
     let read_data = read_stream(&mut state.stream);
     assert_eq!(data, read_data);
+}
+
+#[test]
+fn test_client_read_twice() {
+    // Start server udp socket
+    let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
+    let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
+
+    // Connect the client
+    let mut state = connect(server_udp_socket);
+
+    // Read
+    read(&mut state, "some data".as_bytes());
+    read(&mut state, "some other data".as_bytes());
 }
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
