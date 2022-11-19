@@ -2,11 +2,13 @@
 mod tests;
 
 use futures::executor::block_on;
+use futures::{future::FutureExt, pin_mut, select};
 use std::io::Result;
 use std::net::*;
 use std::str;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 
 use crate::segment::Kind::*;
@@ -35,12 +37,9 @@ struct ClientStream {
     write_tx: Sender<Vec<u8>>,
 }
 
-struct State {
+struct Nums {
     seq_num: u32,
     ack_num: u32,
-    udp_socket: UdpSocket,
-    read_tx: Sender<Vec<u8>>,
-    write_rx: Receiver<Vec<u8>>,
 }
 
 impl Listener {
@@ -112,17 +111,10 @@ impl Stream {
     ) {
         let (seq_num, ack_num) = Self::client_handshake(&udp_socket);
 
-        let mut state = State {
-            udp_socket,
-            seq_num,
-            ack_num,
-            read_tx,
-            write_rx,
-        };
+        let nums = Nums { seq_num, ack_num };
 
-        loop {
-            state = connected_loop(state);
-        }
+        let future = connected_loop(nums, udp_socket, read_tx, write_rx);
+        block_on(future);
     }
 
     fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
@@ -232,50 +224,89 @@ impl ServerStream {
     }
 }
 
-fn connected_loop(state: State) -> State {
-    let future_recv_socket = async_recv_socket(state);
-    let _future_recv_write_tx = async_recv_write_rx(state);
+async fn connected_loop(
+    nums: Nums,
+    udp_socket: UdpSocket,
+    read_tx: Sender<Vec<u8>>,
+    write_rx: Receiver<Vec<u8>>,
+) {
+    let nums_in_mutex = Mutex::new(nums);
+    let nums_in_arc = Arc::new(nums_in_mutex);
 
-    block_on(future_recv_socket)
+    let recv_socket_state = RecvSocketState {
+        udp_socket: &udp_socket,
+        read_tx,
+        nums: Arc::clone(&nums_in_arc),
+    };
+    let recv_write_rx_state = RecvWriteRxState {
+        udp_socket: &udp_socket,
+        write_rx,
+        nums: nums_in_arc,
+    };
+
+    let mut future_recv_socket = recv_socket(recv_socket_state).fuse();
+    let mut future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
+
+    pin_mut!(future_recv_socket, future_recv_write_rx);
+
+    select! {
+        _new_recv_socket_socket = future_recv_socket => {
+            println!("{:?}", "recv sock");
+
+
+        },
+        _state = future_recv_write_rx => {
+            println!("{:?}", "recv write")
+        },
+    };
 }
 
-async fn async_recv_socket(state: State) -> State {
-    recv_socket(state)
+struct RecvSocketState<'a> {
+    udp_socket: &'a UdpSocket,
+    read_tx: Sender<Vec<u8>>,
+    nums: Arc<Mutex<Nums>>,
 }
 
-fn recv_socket(mut state: State) -> State {
-    let udp_socket = &state.udp_socket;
-    let peer_addr = udp_socket.peer_addr().unwrap();
-    let segment = recv_segment(udp_socket, peer_addr);
+async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
+    let peer_addr = state.udp_socket.peer_addr().unwrap();
+    let segment = recv_segment(state.udp_socket, peer_addr);
+
+    let mut locked_nums = state.nums.lock().unwrap();
 
     // The segment shouldn't ack something not sent
-    assert!(state.seq_num >= segment.ack_num());
+    assert!(locked_nums.seq_num >= segment.ack_num());
     // The segment should contain the next expected data
-    assert_eq!(state.ack_num, segment.seq_num());
+    assert_eq!(locked_nums.ack_num, segment.seq_num());
 
     let data = segment.to_data();
     let len = data.len() as u32;
 
-    state.ack_num += len;
+    locked_nums.ack_num += len;
 
-    let ack = Segment::new(Ack, state.seq_num, state.ack_num, &vec![]);
-    send_segment(&udp_socket, peer_addr, &ack);
+    let ack =
+        Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &vec![]);
+    drop(locked_nums);
+    send_segment(state.udp_socket, peer_addr, &ack);
 
     state.read_tx.send(data).unwrap();
     state
 }
 
-async fn async_recv_write_rx(state: State) -> State {
-    recv_write_rx(state)
+struct RecvWriteRxState<'a> {
+    udp_socket: &'a UdpSocket,
+    write_rx: Receiver<Vec<u8>>,
+    nums: Arc<Mutex<Nums>>,
 }
 
-fn recv_write_rx(state: State) -> State {
+async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
     let data = state.write_rx.recv().unwrap();
-    let seg = Segment::new(Ack, state.seq_num, state.ack_num, &data);
+    let locked_nums = state.nums.lock().unwrap();
+    let seg =
+        Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &data);
+    drop(locked_nums);
 
-    let udp_socket = &state.udp_socket;
-    let peer_addr = udp_socket.peer_addr().unwrap();
-    send_segment(udp_socket, peer_addr, &seg);
+    let peer_addr = state.udp_socket.peer_addr().unwrap();
+    send_segment(state.udp_socket, peer_addr, &seg);
     state
 }
 
