@@ -136,8 +136,11 @@ fn test_client_read_twice() {
     let mut state = setup_connected_client();
     println!("{:?}", "conn");
 
+    // This deadlocks/hangs
     read(&mut state, "some data");
-    println!("{:?}", "read1 done");
+    read(&mut state, "some other data");
+    read(&mut state, "some other data");
+    read(&mut state, "some other data");
     read(&mut state, "some other data");
 }
 
