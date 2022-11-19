@@ -78,7 +78,6 @@ impl Listener {
 
 impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
-        println!("connect called");
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
         //let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
@@ -244,21 +243,25 @@ async fn connected_loop(
         nums: nums_in_arc,
     };
 
-    let mut future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let mut future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
+    let future_recv_socket = recv_socket(recv_socket_state).fuse();
+    let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
 
     pin_mut!(future_recv_socket, future_recv_write_rx);
 
-    select! {
-        _new_recv_socket_socket = future_recv_socket => {
-            println!("{:?}", "recv sock");
+    loop {
+        select! {
+            new_recv_socket_state = future_recv_socket => {
+                println!("{:?}", "recv sock");
 
+                future_recv_socket.set(recv_socket(new_recv_socket_state).fuse());
+            },
+            new_write_rx_state = future_recv_write_rx => {
+                println!("{:?}", "recv write");
 
-        },
-        _state = future_recv_write_rx => {
-            println!("{:?}", "recv write")
-        },
-    };
+                future_recv_write_rx.set(recv_write_rx(new_write_rx_state).fuse());
+            },
+        };
+    }
 }
 
 struct RecvSocketState<'a> {

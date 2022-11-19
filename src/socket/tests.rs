@@ -134,8 +134,10 @@ fn read(state: &mut State, string: &str) {
 #[test]
 fn test_client_read_twice() {
     let mut state = setup_connected_client();
+    println!("{:?}", "conn");
 
     read(&mut state, "some data");
+    println!("{:?}", "read1 done");
     read(&mut state, "some other data");
 }
 
