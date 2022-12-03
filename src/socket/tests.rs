@@ -120,7 +120,6 @@ fn read(state: &mut State, string: &str) {
     let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
     send_segment(&state.udp_socket, state.peer_addr, &send_seg);
     state.seq_num += data.len() as u32;
-
     // Check that the server received an ACK
     let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
     let exp_ack = Segment::new(Ack, state.ack_num, state.seq_num, &vec![]);
@@ -132,16 +131,19 @@ fn read(state: &mut State, string: &str) {
 }
 
 #[test]
-fn test_client_read_twice() {
+fn test_client_read_multiple_times() {
     let mut state = setup_connected_client();
-    println!("{:?}", "conn");
 
-    // This deadlocks/hangs
-    read(&mut state, "some data");
-    read(&mut state, "some other data");
-    read(&mut state, "some other data");
-    read(&mut state, "some other data");
-    read(&mut state, "some other data");
+    read(&mut state, "first");
+    read(&mut state, "second");
+    read(&mut state, "third");
+    read(&mut state, "fourth");
+    read(&mut state, "fifth");
+    read(&mut state, "sixth");
+    read(&mut state, "seventh");
+    read(&mut state, "eighth");
+    read(&mut state, "ninth");
+    read(&mut state, "tenth");
 }
 
 #[test]
@@ -205,3 +207,6 @@ fn read_stream(stream: &mut Stream) -> Vec<u8> {
     let amt = stream.read(&mut buf).unwrap();
     buf[0..amt].to_vec()
 }
+
+#[test]
+fn my_test() {}

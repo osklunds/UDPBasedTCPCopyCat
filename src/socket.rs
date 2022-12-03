@@ -6,10 +6,12 @@ use futures::{future::FutureExt, pin_mut, select};
 use std::io::Result;
 use std::net::*;
 use std::str;
-use std::sync::mpsc::{self, Receiver, Sender};
+// use futures::channel::mpsc::{self, Receiver, Sender};
+use async_channel::{Receiver, Sender};
+use futures::lock::Mutex;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::thread;
+use std::time::Duration;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -81,8 +83,8 @@ impl Stream {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
         //let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
-        let (read_tx, read_rx) = mpsc::channel();
-        let (write_tx, write_rx) = mpsc::channel();
+        let (read_tx, read_rx) = async_channel::unbounded();
+        let (write_tx, write_rx) = async_channel::unbounded();
 
         match UdpSocket::bind(local_addr) {
             Ok(udp_socket) => {
@@ -194,13 +196,13 @@ impl Stream {
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.write_tx.send(buf.to_vec()).unwrap();
+        block_on(self.write_tx.send(buf.to_vec())).unwrap();
 
         Ok(buf.len())
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let data = self.read_rx.recv().unwrap();
+        let data = block_on(self.read_rx.recv()).unwrap();
         let len = data.len();
 
         // TODO: Solve the horrible inefficiency
@@ -251,13 +253,9 @@ async fn connected_loop(
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                println!("{:?}", "recv sock");
-
                 future_recv_socket.set(recv_socket(new_recv_socket_state).fuse());
             },
             new_write_rx_state = future_recv_write_rx => {
-                println!("{:?}", "recv write");
-
                 future_recv_write_rx.set(recv_write_rx(new_write_rx_state).fuse());
             },
         };
@@ -274,7 +272,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
     let peer_addr = state.udp_socket.peer_addr().unwrap();
     let segment = recv_segment(state.udp_socket, peer_addr);
 
-    let mut locked_nums = state.nums.lock().unwrap();
+    let mut locked_nums = state.nums.lock().await;
 
     // The segment shouldn't ack something not sent
     assert!(locked_nums.seq_num >= segment.ack_num());
@@ -291,7 +289,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
     drop(locked_nums);
     send_segment(state.udp_socket, peer_addr, &ack);
 
-    state.read_tx.send(data).unwrap();
+    state.read_tx.try_send(data).unwrap();
     state
 }
 
@@ -302,8 +300,8 @@ struct RecvWriteRxState<'a> {
 }
 
 async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
-    let data = state.write_rx.recv().unwrap();
-    let locked_nums = state.nums.lock().unwrap();
+    let data = state.write_rx.recv().await.unwrap();
+    let locked_nums = state.nums.lock().await;
     let seg =
         Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &data);
     drop(locked_nums);
