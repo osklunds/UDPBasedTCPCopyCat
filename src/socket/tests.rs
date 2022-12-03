@@ -1,6 +1,6 @@
 use super::*;
 
-use std::net::*;
+use std::net::{UdpSocket, *};
 
 use crate::segment::Segment;
 

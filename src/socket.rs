@@ -1,14 +1,13 @@
 #[cfg(test)]
 mod tests;
 
+use async_channel::{Receiver, Sender};
+use async_std::net::*;
 use futures::executor::block_on;
+use futures::lock::Mutex;
 use futures::{future::FutureExt, pin_mut, select};
 use std::io::Result;
-use std::net::*;
 use std::str;
-// use futures::channel::mpsc::{self, Receiver, Sender};
-use async_channel::{Receiver, Sender};
-use futures::lock::Mutex;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -44,9 +43,11 @@ struct Nums {
     ack_num: u32,
 }
 
+// TODO: Need to make this entire module async!
+
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
-        match UdpSocket::bind(local_addr) {
+        match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 println!("Listener started");
                 let listener = Listener {
@@ -61,7 +62,8 @@ impl Listener {
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
         println!("accept called");
         let mut buf = [0; 4096];
-        let (amt, peer_addr) = self.udp_socket.recv_from(&mut buf).unwrap();
+        let (amt, peer_addr) =
+            block_on(self.udp_socket.recv_from(&mut buf)).unwrap();
 
         let string = str::from_utf8(&buf[0..amt]).unwrap();
 
@@ -86,9 +88,10 @@ impl Stream {
         let (read_tx, read_rx) = async_channel::unbounded();
         let (write_tx, write_rx) = async_channel::unbounded();
 
-        match UdpSocket::bind(local_addr) {
+        // TODO: Make functions more async in general
+        match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
-                UdpSocket::connect(&udp_socket, peer_addr).unwrap();
+                block_on(UdpSocket::connect(&udp_socket, peer_addr)).unwrap();
                 thread::spawn(move || {
                     Self::client(udp_socket, read_tx, write_rx)
                 });
@@ -124,11 +127,11 @@ impl Stream {
         let syn = Segment::new(Syn, seq_num, 0, &vec![]);
         let encoded_syn = Segment::encode(&syn);
 
-        udp_socket.send(&encoded_syn).unwrap();
+        block_on(udp_socket.send(&encoded_syn)).unwrap();
 
         // Receive SYN-ACK
         let mut buf = [0; 4096];
-        let amt = udp_socket.recv(&mut buf).unwrap();
+        let amt = block_on(udp_socket.recv(&mut buf)).unwrap();
 
         let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
 
@@ -144,7 +147,7 @@ impl Stream {
         let ack = Segment::new(Ack, new_seq_num, ack_num, &vec![]);
         let encoded_ack = Segment::encode(&ack);
 
-        udp_socket.send(&encoded_ack).unwrap();
+        block_on(udp_socket.send(&encoded_ack)).unwrap();
 
         (new_seq_num, ack_num)
     }
@@ -153,9 +156,12 @@ impl Stream {
         udp_socket: Arc<UdpSocket>,
         to_peer_addr: A,
     ) -> Result<Stream> {
-        let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
+        let peer_addr = block_on(to_peer_addr.to_socket_addrs())
+            .unwrap()
+            .last()
+            .unwrap();
 
-        udp_socket.send_to("ack".as_bytes(), peer_addr).unwrap();
+        block_on(udp_socket.send_to("ack".as_bytes(), peer_addr)).unwrap();
 
         let stream = ServerStream {
             udp_socket,
@@ -196,7 +202,9 @@ impl Stream {
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        println!("{:?}", "sending data");
         block_on(self.write_tx.send(buf.to_vec())).unwrap();
+        println!("{:?}", "sent");
 
         Ok(buf.len())
     }
@@ -216,12 +224,12 @@ impl ClientStream {
 
 impl ServerStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.udp_socket.send_to(buf, self.peer_addr)
+        block_on(self.udp_socket.send_to(buf, self.peer_addr))
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         println!("server read from {:?}", self.udp_socket.local_addr());
-        self.udp_socket.recv(buf)
+        block_on(self.udp_socket.recv(buf))
     }
 }
 
@@ -269,8 +277,10 @@ struct RecvSocketState<'a> {
 }
 
 async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
+    println!("{:?}", "recv_scoket called");
     let peer_addr = state.udp_socket.peer_addr().unwrap();
     let segment = recv_segment(state.udp_socket, peer_addr);
+    println!("{:?}", "recved data");
 
     let mut locked_nums = state.nums.lock().await;
 
@@ -300,7 +310,9 @@ struct RecvWriteRxState<'a> {
 }
 
 async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
+    println!("{:?}", "recv write rx called");
     let data = state.write_rx.recv().await.unwrap();
+    println!("{:?}", "got data");
     let locked_nums = state.nums.lock().await;
     let seg =
         Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &data);
@@ -313,7 +325,7 @@ async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
 
 fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
     let mut buf = [0; 4096];
-    let (amt, recv_addr) = udp_socket.recv_from(&mut buf).unwrap();
+    let (amt, recv_addr) = block_on(udp_socket.recv_from(&mut buf)).unwrap();
     assert_eq!(peer_addr, recv_addr);
     Segment::decode(&buf[0..amt]).unwrap()
 }
@@ -324,5 +336,5 @@ fn send_segment(
     segment: &Segment,
 ) {
     let encoded_seq = segment.encode();
-    udp_socket.send(&encoded_seq).unwrap();
+    block_on(udp_socket.send(&encoded_seq)).unwrap();
 }
