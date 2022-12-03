@@ -134,16 +134,16 @@ fn read(state: &mut State, string: &str) {
 fn test_client_read_multiple_times() {
     let mut state = setup_connected_client();
 
-    read(&mut state, "first");
-    read(&mut state, "second");
-    read(&mut state, "third");
-    read(&mut state, "fourth");
-    read(&mut state, "fifth");
-    read(&mut state, "sixth");
-    read(&mut state, "seventh");
-    read(&mut state, "eighth");
-    read(&mut state, "ninth");
-    read(&mut state, "tenth");
+    read(&mut state, "first rweouinwrte");
+    read(&mut state, "second hfuiasud");
+    read(&mut state, "third uifdshufihsiughsyudfghkusfdf");
+    read(&mut state, "fourth fuidshfadgaerge");
+    read(&mut state, "fifth dhuifghuifdlfoiwejiow");
+    read(&mut state, "sixth fdauykfudsfgs");
+    read(&mut state, "seventh fsdhsdgfsd");
+    read(&mut state, "eighth ijogifdgire");
+    read(&mut state, "ninth ertwrw");
+    read(&mut state, "tenth uhfsdghsu");
 }
 
 #[test]
