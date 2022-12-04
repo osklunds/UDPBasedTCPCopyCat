@@ -1,6 +1,7 @@
 use super::*;
 
 use std::net::{UdpSocket, *};
+use std::time::Duration;
 
 use crate::segment::Segment;
 
@@ -175,6 +176,22 @@ fn uut_write(state: &mut State, string: &str) {
     send_segment(&state.tc_socket, state.uut_addr, &send_seg);
 
     // TODO: Check buffer size
+}
+
+#[test]
+fn test_client_write_multiple_times() {
+    let mut state = setup_connected_uut_client();
+
+    uut_read(&mut state, "first agfs");
+    uut_read(&mut state, "second gfdhdgfh");
+    uut_read(&mut state, "third dfafsdfads");
+    uut_read(&mut state, "fourth dfafas");
+    uut_read(&mut state, "fifth dfasfasfsdaf");
+    uut_read(&mut state, "sixth thythrt");
+    uut_read(&mut state, "seventh fdsaref");
+    uut_read(&mut state, "eighth dagfsdrgrege");
+    uut_read(&mut state, "ninth asfaerger");
+    uut_read(&mut state, "tenth trehjk");
 }
 
 fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {

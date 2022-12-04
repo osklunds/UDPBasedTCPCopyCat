@@ -305,11 +305,16 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
     let ack =
         Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &vec![]);
     drop(locked_nums);
-    send_segment(state.udp_socket, peer_addr, &ack).await;
 
-    match state.read_tx.send(data).await {
-        Ok(()) => Some(state),
-        Err(_) => None,
+    if len == 0 {
+        Some(state)
+    } else {
+        send_segment(state.udp_socket, peer_addr, &ack).await;
+
+        match state.read_tx.send(data).await {
+            Ok(()) => Some(state),
+            Err(_) => None,
+        }
     }
 }
 
