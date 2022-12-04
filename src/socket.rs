@@ -20,10 +20,10 @@ pub struct Listener {
 }
 
 pub struct Stream {
-    stream_inner: StreamInner,
+    inner_stream: InnerStream,
 }
 
-enum StreamInner {
+enum InnerStream {
     Server(ServerStream),
     Client(ClientStream),
 }
@@ -42,8 +42,6 @@ struct Nums {
     seq_num: u32,
     ack_num: u32,
 }
-
-// TODO: Need to make this entire module async!
 
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
@@ -87,24 +85,21 @@ impl Stream {
         let (read_tx, read_rx) = async_channel::unbounded();
         let (write_tx, write_rx) = async_channel::unbounded();
 
-        // TODO: Make functions more async in general
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 block_on(UdpSocket::connect(&udp_socket, peer_addr)).unwrap();
+
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || Self::client(udp_socket, read_tx, write_rx))
                     .unwrap();
-                let stream = ClientStream { read_rx, write_tx };
-                Ok(Self::pack_client_stream(stream))
+
+                let client_stream = ClientStream { read_rx, write_tx };
+                let inner_stream = InnerStream::Client(client_stream);
+                let stream = Stream { inner_stream };
+                Ok(stream)
             }
             Err(err) => Err(err),
-        }
-    }
-
-    fn pack_client_stream(client_stream: ClientStream) -> Stream {
-        Stream {
-            stream_inner: StreamInner::Client(client_stream),
         }
     }
 
@@ -173,27 +168,27 @@ impl Stream {
 
     fn pack_server_stream(server_stream: ServerStream) -> Stream {
         Stream {
-            stream_inner: StreamInner::Server(server_stream),
+            inner_stream: InnerStream::Server(server_stream),
         }
     }
 
     pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        match &mut self.stream_inner {
-            StreamInner::Client(client_stream) => {
+        match &mut self.inner_stream {
+            InnerStream::Client(client_stream) => {
                 ClientStream::write(client_stream, buf)
             }
-            StreamInner::Server(server_stream) => {
+            InnerStream::Server(server_stream) => {
                 ServerStream::write(server_stream, buf)
             }
         }
     }
 
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match &mut self.stream_inner {
-            StreamInner::Client(client_stream) => {
+        match &mut self.inner_stream {
+            InnerStream::Client(client_stream) => {
                 ClientStream::read(client_stream, buf)
             }
-            StreamInner::Server(server_stream) => {
+            InnerStream::Server(server_stream) => {
                 ServerStream::read(server_stream, buf)
             }
         }
