@@ -91,7 +91,9 @@ impl Stream {
 
                 thread::Builder::new()
                     .name("client".to_string())
-                    .spawn(move || Self::client(udp_socket, read_tx, write_rx))
+                    .spawn(move || {
+                        block_on(Self::client(udp_socket, read_tx, write_rx))
+                    })
                     .unwrap();
 
                 let client_stream = ClientStream { read_rx, write_tx };
@@ -103,30 +105,29 @@ impl Stream {
         }
     }
 
-    fn client(
+    async fn client(
         udp_socket: UdpSocket,
         read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<Vec<u8>>,
     ) {
-        let (seq_num, ack_num) = Self::client_handshake(&udp_socket);
+        let (seq_num, ack_num) = Self::client_handshake(&udp_socket).await;
 
         let nums = Nums { seq_num, ack_num };
 
-        let future = connected_loop(nums, udp_socket, read_tx, write_rx);
-        block_on(future);
+        connected_loop(nums, udp_socket, read_tx, write_rx).await;
     }
 
-    fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
+    async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
         // Send SYN
         let seq_num = rand::random();
         let syn = Segment::new(Syn, seq_num, 0, &vec![]);
         let encoded_syn = Segment::encode(&syn);
 
-        block_on(udp_socket.send(&encoded_syn)).unwrap();
+        udp_socket.send(&encoded_syn).await.unwrap();
 
         // Receive SYN-ACK
         let mut buf = [0; 4096];
-        let amt = block_on(udp_socket.recv(&mut buf)).unwrap();
+        let amt = udp_socket.recv(&mut buf).await.unwrap();
 
         let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
 
@@ -142,7 +143,7 @@ impl Stream {
         let ack = Segment::new(Ack, new_seq_num, ack_num, &vec![]);
         let encoded_ack = Segment::encode(&ack);
 
-        block_on(udp_socket.send(&encoded_ack)).unwrap();
+        udp_socket.send(&encoded_ack).await.unwrap();
 
         (new_seq_num, ack_num)
     }
