@@ -182,16 +182,16 @@ fn uut_write(state: &mut State, string: &str) {
 fn test_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    uut_read(&mut state, "first agfs");
-    uut_read(&mut state, "second gfdhdgfh");
-    uut_read(&mut state, "third dfafsdfads");
-    uut_read(&mut state, "fourth dfafas");
-    uut_read(&mut state, "fifth dfasfasfsdaf");
-    uut_read(&mut state, "sixth thythrt");
-    uut_read(&mut state, "seventh fdsaref");
-    uut_read(&mut state, "eighth dagfsdrgrege");
-    uut_read(&mut state, "ninth asfaerger");
-    uut_read(&mut state, "tenth trehjk");
+    uut_write(&mut state, "first agfs");
+    uut_write(&mut state, "second gfdhdgfh");
+    uut_write(&mut state, "third dfafsdfads");
+    uut_write(&mut state, "fourth dfafas");
+    uut_write(&mut state, "fifth dfasfasfsdaf");
+    uut_write(&mut state, "sixth thythrt");
+    uut_write(&mut state, "seventh fdsaref");
+    uut_write(&mut state, "eighth dagfsdrgrege");
+    uut_write(&mut state, "ninth asfaerger");
+    uut_write(&mut state, "tenth trehjk");
 }
 
 fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
