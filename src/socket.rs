@@ -255,13 +255,7 @@ async fn connected_loop(
 
     pin_mut!(future_recv_socket, future_recv_write_rx);
 
-    let mut error = false;
-
     loop {
-        if error {
-            return;
-        };
-
         select! {
             new_recv_socket_state = future_recv_socket => {
                 if let Some(new_recv_socket_state) = new_recv_socket_state {
@@ -269,7 +263,7 @@ async fn connected_loop(
                         recv_socket(new_recv_socket_state).fuse();
                     future_recv_socket.set(new_future_recv_socket);
                 } else {
-                    error = true;
+                    return;
                 }
             },
             new_write_rx_state = future_recv_write_rx => {
@@ -278,7 +272,7 @@ async fn connected_loop(
                         recv_write_rx(new_write_rx_state).fuse();
                     future_recv_write_rx.set(new_future_recv_write_rx);
                 } else {
-                    error = true;
+                    return;
                 }
             },
         };
