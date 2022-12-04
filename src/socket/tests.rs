@@ -57,156 +57,149 @@ use crate::segment::Segment;
 // }
 
 struct State {
-    udp_socket: UdpSocket,
-    stream: Stream,
-    peer_addr: SocketAddr,
-    seq_num: u32,
-    ack_num: u32,
+    tc_socket: UdpSocket,
+    uut_stream: Stream,
+    uut_addr: SocketAddr,
+    tc_seq_num: u32,
+    uut_seq_num: u32,
 }
 
 #[test]
 fn test_connect() {
-    setup_connected_client();
+    setup_connected_uut_client();
 }
 
-fn setup_connected_client() -> State {
-    let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
-    let server_udp_socket = UdpSocket::bind(server_addr).unwrap();
+fn setup_connected_uut_client() -> State {
+    let tc_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
+    let tc_socket = UdpSocket::bind(tc_addr).unwrap();
 
-    connect(server_udp_socket)
+    uut_connect(tc_socket)
 }
 
-fn connect(server_udp_socket: UdpSocket) -> State {
+fn uut_connect(tc_socket: UdpSocket) -> State {
     // Connect
-    let server_addr = server_udp_socket.local_addr().unwrap();
-    let client_stream = Stream::connect(&server_addr).unwrap();
+    let tc_addr = tc_socket.local_addr().unwrap();
+    let uut_stream = Stream::connect(&tc_addr).unwrap();
 
     // Receive SYN
-    let (syn, client_addr) = recv_segment_from(&server_udp_socket);
+    let (syn, uut_addr) = recv_segment_from(&tc_socket);
     assert_eq!(Syn, syn.kind());
 
     // Send SYN-ACK
-    let mut server_seq_num = rand::random();
-    let client_seq_num = syn.seq_num() + 1;
-    let syn_ack = Segment::new(SynAck, server_seq_num, client_seq_num, &vec![]);
-    send_segment(&server_udp_socket, client_addr, &syn_ack);
+    let mut tc_seq_num = rand::random();
+    let uut_seq_num = syn.seq_num() + 1;
+    let syn_ack = Segment::new(SynAck, tc_seq_num, uut_seq_num, &vec![]);
+    send_segment(&tc_socket, uut_addr, &syn_ack);
 
     // Receive ACK
-    let ack = recv_segment(&server_udp_socket, client_addr);
+    let ack = recv_segment(&tc_socket, uut_addr);
     assert_eq!(Ack, ack.kind());
-    server_seq_num += 1;
-    assert_eq!(server_seq_num, ack.ack_num());
+    tc_seq_num += 1;
+    assert_eq!(tc_seq_num, ack.ack_num());
 
     State {
-        udp_socket: server_udp_socket,
-        stream: client_stream,
-        peer_addr: client_addr,
-        seq_num: server_seq_num,
-        ack_num: client_seq_num,
+        tc_socket,
+        uut_stream,
+        uut_addr,
+        tc_seq_num,
+        uut_seq_num,
     }
 }
 
 #[test]
 fn test_client_read_once() {
-    let mut state = setup_connected_client();
+    let mut state = setup_connected_uut_client();
 
-    read(&mut state, "some data");
+    uut_read(&mut state, "some data");
 }
 
-fn read(state: &mut State, string: &str) {
+fn uut_read(state: &mut State, string: &str) {
     let data = string.as_bytes();
 
-    // Send from the server
-    let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
-    send_segment(&state.udp_socket, state.peer_addr, &send_seg);
-    state.seq_num += data.len() as u32;
-    // Check that the server received an ACK
-    let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
-    let exp_ack = Segment::new(Ack, state.ack_num, state.seq_num, &vec![]);
+    // Send from the tc
+    let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
+    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
+    state.tc_seq_num += data.len() as u32;
+
+    // Recv ACK from the uut
+    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_ack =
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &vec![]);
     assert_eq!(exp_ack, recv_seg);
 
-    // Check that the client received the correct data
-    let read_data = read_stream(&mut state.stream);
+    // Check that the uut received the correct data
+    let read_data = uut_read_stream(&mut state.uut_stream);
     assert_eq!(data, read_data);
 }
 
 #[test]
 fn test_client_read_multiple_times() {
-    let mut state = setup_connected_client();
+    let mut state = setup_connected_uut_client();
 
-    read(&mut state, "first rweouinwrte");
-    read(&mut state, "second hfuiasud");
-    read(&mut state, "third uifdshufihsiughsyudfghkusfdf");
-    read(&mut state, "fourth fuidshfadgaerge");
-    read(&mut state, "fifth dhuifghuifdlfoiwejiow");
-    read(&mut state, "sixth fdauykfudsfgs");
-    read(&mut state, "seventh fsdhsdgfsd");
-    read(&mut state, "eighth ijogifdgire");
-    read(&mut state, "ninth ertwrw");
-    read(&mut state, "tenth uhfsdghsu");
+    uut_read(&mut state, "first rweouinwrte");
+    uut_read(&mut state, "second hfuiasud");
+    uut_read(&mut state, "third uifdshufihsiughsyudfghkusfdf");
+    uut_read(&mut state, "fourth fuidshfadgaerge");
+    uut_read(&mut state, "fifth dhuifghuifdlfoiwejiow");
+    uut_read(&mut state, "sixth fdauykfudsfgs");
+    uut_read(&mut state, "seventh fsdhsdgfsd");
+    uut_read(&mut state, "eighth ijogifdgire");
+    uut_read(&mut state, "ninth ertwrw");
+    uut_read(&mut state, "tenth uhfsdghsu");
 }
 
 #[test]
 fn test_client_write_once() {
-    let mut state = setup_connected_client();
+    let mut state = setup_connected_uut_client();
 
-    write(&mut state, "some data");
+    uut_write(&mut state, "some data");
 }
 
-fn write(state: &mut State, string: &str) {
+fn uut_write(state: &mut State, string: &str) {
     let data = string.as_bytes();
 
-    // Send from the client
-    let written_len = state.stream.write(&data).unwrap();
+    // Send from the uut
+    let written_len = state.uut_stream.write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
 
-    // Check that the server received a segment with the data
-    let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
-    let exp_seg = Segment::new(Ack, state.ack_num, state.seq_num, &data);
+    // Recv from the tc
+    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
     assert_eq!(exp_seg, recv_seg);
+    state.uut_seq_num += len as u32;
 
-    // // Send from the server
-    // let send_seg = Segment::new(Ack, state.seq_num, state.ack_num, data);
-    // send_segment(&state.udp_socket, state.peer_addr, &send_seg);
-    // state.seq_num += data.len() as u32;
+    // Send ack from the tc
+    let send_seg =
+        Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, &vec![]);
+    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
 
-    // // Check that the server received an ACK
-    // let recv_seg = recv_segment(&state.udp_socket, state.peer_addr);
-    // let exp_ack = Segment::new(Ack, state.ack_num, state.seq_num, &vec![]);
-    // assert_eq!(exp_ack, recv_seg);
-
-    // // Check that the client received the correct data
-    // let read_data = read_stream(&mut state.stream);
-    // assert_eq!(data, read_data);
+    // TODO: Check buffer size
 }
 
-fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
-    let (seg, recv_addr) = recv_segment_from(udp_socket);
-    assert_eq!(peer_addr, recv_addr);
+fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
+    let (seg, recv_addr) = recv_segment_from(tc_socket);
+    assert_eq!(uut_addr, recv_addr);
     seg
 }
 
-fn recv_segment_from(udp_socket: &UdpSocket) -> (Segment, SocketAddr) {
+fn recv_segment_from(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
     let mut buf = [0; 4096];
-    let (amt, recv_addr) = udp_socket.recv_from(&mut buf).unwrap();
+    let (amt, recv_addr) = tc_socket.recv_from(&mut buf).unwrap();
     (Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
 }
 
 fn send_segment(
-    udp_socket: &UdpSocket,
-    peer_addr: SocketAddr,
+    tc_socket: &UdpSocket,
+    uut_addr: SocketAddr,
     segment: &Segment,
 ) {
     let encoded_seq = segment.encode();
-    udp_socket.send_to(&encoded_seq, peer_addr).unwrap();
+    tc_socket.send_to(&encoded_seq, uut_addr).unwrap();
 }
 
-fn read_stream(stream: &mut Stream) -> Vec<u8> {
+fn uut_read_stream(stream: &mut Stream) -> Vec<u8> {
     let mut buf = [0; 4096];
     let amt = stream.read(&mut buf).unwrap();
     buf[0..amt].to_vec()
 }
-
-#[test]
-fn my_test() {}
