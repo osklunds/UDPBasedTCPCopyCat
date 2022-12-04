@@ -194,6 +194,19 @@ fn test_client_write_multiple_times() {
     uut_write(&mut state, "tenth trehjk");
 }
 
+#[test]
+fn test_client_reads_and_writes() {
+    let mut state = setup_connected_uut_client();
+
+    uut_read(&mut state, "first");
+    uut_write(&mut state, "second");
+    uut_write(&mut state, "third");
+    uut_write(&mut state, "fourth");
+    uut_read(&mut state, "fifth");
+    uut_read(&mut state, "sixth");
+    uut_write(&mut state, "seventh");
+}
+
 fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
     let (seg, recv_addr) = recv_segment_from(tc_socket);
     assert_eq!(uut_addr, recv_addr);
