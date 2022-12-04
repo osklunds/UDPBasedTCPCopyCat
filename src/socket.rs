@@ -255,13 +255,25 @@ async fn connected_loop(
 
     pin_mut!(future_recv_socket, future_recv_write_rx);
 
+    let mut error = false;
+
     loop {
+        if error {
+            return;
+        };
+
         select! {
             new_recv_socket_state = future_recv_socket => {
                 future_recv_socket.set(recv_socket(new_recv_socket_state).fuse());
             },
             new_write_rx_state = future_recv_write_rx => {
-                future_recv_write_rx.set(recv_write_rx(new_write_rx_state).fuse());
+                if let Some(new_write_rx_state) = new_write_rx_state {
+                    let new_future_recv_write_rx =
+                        recv_write_rx(new_write_rx_state).fuse();
+                    future_recv_write_rx.set(new_future_recv_write_rx);
+                } else {
+                    error = true;
+                }
             },
         };
     }
@@ -304,18 +316,28 @@ struct RecvWriteRxState<'a> {
     nums: Arc<Mutex<Nums>>,
 }
 
-async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
+async fn recv_write_rx(
+    state: RecvWriteRxState<'_>,
+) -> Option<RecvWriteRxState> {
     println!("{:?}", "recv write rx called");
-    let data = state.write_rx.recv().await.unwrap();
-    println!("{:?}", "got data");
-    let locked_nums = state.nums.lock().await;
-    let seg =
-        Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &data);
-    drop(locked_nums);
+    match state.write_rx.recv().await {
+        Ok(data) => {
+            println!("{:?}", "got data");
+            let locked_nums = state.nums.lock().await;
+            let seg = Segment::new(
+                Ack,
+                locked_nums.seq_num,
+                locked_nums.ack_num,
+                &data,
+            );
+            drop(locked_nums);
 
-    let peer_addr = state.udp_socket.peer_addr().unwrap();
-    send_segment(state.udp_socket, peer_addr, &seg).await;
-    state
+            let peer_addr = state.udp_socket.peer_addr().unwrap();
+            send_segment(state.udp_socket, peer_addr, &seg).await;
+            Some(state)
+        }
+        Err(async_channel::RecvError) => None,
+    }
 }
 
 async fn recv_segment(
