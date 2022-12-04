@@ -38,7 +38,7 @@ struct ClientStream {
     write_tx: Sender<Vec<u8>>,
 }
 
-struct Nums {
+struct ConnectedState {
     seq_num: u32,
     ack_num: u32,
 }
@@ -112,9 +112,9 @@ impl Stream {
     ) {
         let (seq_num, ack_num) = Self::client_handshake(&udp_socket).await;
 
-        let nums = Nums { seq_num, ack_num };
+        let state = ConnectedState { seq_num, ack_num };
 
-        connected_loop(nums, udp_socket, read_tx, write_rx).await;
+        connected_loop(state, udp_socket, read_tx, write_rx).await;
     }
 
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
@@ -227,23 +227,23 @@ impl ServerStream {
 }
 
 async fn connected_loop(
-    nums: Nums,
+    connected_state: ConnectedState,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
     write_rx: Receiver<Vec<u8>>,
 ) {
-    let nums_in_mutex = Mutex::new(nums);
-    let nums_in_arc = Arc::new(nums_in_mutex);
+    let connected_state_in_mutex = Mutex::new(connected_state);
+    let connected_state_in_arc = Arc::new(connected_state_in_mutex);
 
     let recv_socket_state = RecvSocketState {
         udp_socket: &udp_socket,
         read_tx,
-        nums: Arc::clone(&nums_in_arc),
+        connected_state: Arc::clone(&connected_state_in_arc),
     };
     let recv_write_rx_state = RecvWriteRxState {
         udp_socket: &udp_socket,
         write_rx,
-        nums: nums_in_arc,
+        connected_state: connected_state_in_arc,
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
@@ -278,29 +278,33 @@ async fn connected_loop(
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
     read_tx: Sender<Vec<u8>>,
-    nums: Arc<Mutex<Nums>>,
+    connected_state: Arc<Mutex<ConnectedState>>,
 }
 
 async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
     let peer_addr = state.udp_socket.peer_addr().unwrap();
     let segment = recv_segment(state.udp_socket, peer_addr).await;
 
-    let mut locked_nums = state.nums.lock().await;
+    let mut locked_connected_state = state.connected_state.lock().await;
 
     // TODO: Reject invalid segments instead
     // The segment shouldn't ack something not sent
-    assert!(locked_nums.seq_num >= segment.ack_num());
+    assert!(locked_connected_state.seq_num >= segment.ack_num());
     // The segment should contain the next expected data
-    assert_eq!(locked_nums.ack_num, segment.seq_num());
+    assert_eq!(locked_connected_state.ack_num, segment.seq_num());
 
     let data = segment.to_data();
     let len = data.len() as u32;
 
-    locked_nums.ack_num += len;
+    locked_connected_state.ack_num += len;
 
-    let ack =
-        Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &vec![]);
-    drop(locked_nums);
+    let ack = Segment::new(
+        Ack,
+        locked_connected_state.seq_num,
+        locked_connected_state.ack_num,
+        &vec![],
+    );
+    drop(locked_connected_state);
 
     if len == 0 {
         Some(state)
@@ -317,7 +321,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
 struct RecvWriteRxState<'a> {
     udp_socket: &'a UdpSocket,
     write_rx: Receiver<Vec<u8>>,
-    nums: Arc<Mutex<Nums>>,
+    connected_state: Arc<Mutex<ConnectedState>>,
 }
 
 async fn recv_write_rx(
@@ -325,15 +329,15 @@ async fn recv_write_rx(
 ) -> Option<RecvWriteRxState> {
     match state.write_rx.recv().await {
         Ok(data) => {
-            let mut locked_nums = state.nums.lock().await;
+            let mut locked_connected_state = state.connected_state.lock().await;
             let seg = Segment::new(
                 Ack,
-                locked_nums.seq_num,
-                locked_nums.ack_num,
+                locked_connected_state.seq_num,
+                locked_connected_state.ack_num,
                 &data,
             );
-            locked_nums.seq_num += data.len() as u32;
-            drop(locked_nums);
+            locked_connected_state.seq_num += data.len() as u32;
+            drop(locked_connected_state);
 
             let peer_addr = state.udp_socket.peer_addr().unwrap();
             send_segment(state.udp_socket, peer_addr, &seg).await;
