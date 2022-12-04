@@ -83,7 +83,6 @@ impl Listener {
 impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-        //let peer_addr = to_peer_addr.to_socket_addrs().unwrap().last().unwrap();
 
         let (read_tx, read_rx) = async_channel::unbounded();
         let (write_tx, write_rx) = async_channel::unbounded();
@@ -92,9 +91,10 @@ impl Stream {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 block_on(UdpSocket::connect(&udp_socket, peer_addr)).unwrap();
-                thread::spawn(move || {
-                    Self::client(udp_socket, read_tx, write_rx)
-                });
+                thread::Builder::new()
+                    .name("client".to_string())
+                    .spawn(move || Self::client(udp_socket, read_tx, write_rx))
+                    .unwrap();
                 let stream = ClientStream { read_rx, write_tx };
                 Ok(Self::pack_client_stream(stream))
             }
@@ -202,10 +202,7 @@ impl Stream {
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        println!("{:?}", "sending data");
         block_on(self.write_tx.send(buf.to_vec())).unwrap();
-        println!("{:?}", "sent");
-
         Ok(buf.len())
     }
 
@@ -277,10 +274,8 @@ struct RecvSocketState<'a> {
 }
 
 async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
-    println!("{:?}", "recv_scoket called");
     let peer_addr = state.udp_socket.peer_addr().unwrap();
-    let segment = recv_segment(state.udp_socket, peer_addr);
-    println!("{:?}", "recved data");
+    let segment = recv_segment(state.udp_socket, peer_addr).await;
 
     let mut locked_nums = state.nums.lock().await;
 
@@ -297,7 +292,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketState {
     let ack =
         Segment::new(Ack, locked_nums.seq_num, locked_nums.ack_num, &vec![]);
     drop(locked_nums);
-    send_segment(state.udp_socket, peer_addr, &ack);
+    send_segment(state.udp_socket, peer_addr, &ack).await;
 
     state.read_tx.try_send(data).unwrap();
     state
@@ -319,22 +314,25 @@ async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxState {
     drop(locked_nums);
 
     let peer_addr = state.udp_socket.peer_addr().unwrap();
-    send_segment(state.udp_socket, peer_addr, &seg);
+    send_segment(state.udp_socket, peer_addr, &seg).await;
     state
 }
 
-fn recv_segment(udp_socket: &UdpSocket, peer_addr: SocketAddr) -> Segment {
+async fn recv_segment(
+    udp_socket: &UdpSocket,
+    peer_addr: SocketAddr,
+) -> Segment {
     let mut buf = [0; 4096];
-    let (amt, recv_addr) = block_on(udp_socket.recv_from(&mut buf)).unwrap();
+    let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
     assert_eq!(peer_addr, recv_addr);
     Segment::decode(&buf[0..amt]).unwrap()
 }
 
-fn send_segment(
+async fn send_segment(
     udp_socket: &UdpSocket,
     _peer_addr: SocketAddr,
     segment: &Segment,
 ) {
     let encoded_seq = segment.encode();
-    block_on(udp_socket.send(&encoded_seq)).unwrap();
+    udp_socket.send(&encoded_seq).await.unwrap();
 }
