@@ -35,6 +35,10 @@ impl Distribution<Kind> for Standard {
 }
 
 impl Segment {
+    pub fn new_empty(kind: Kind, seq_num: u32, ack_num: u32) -> Segment {
+        Self::new(kind, seq_num, ack_num, &[])
+    }
+
     pub fn new(kind: Kind, seq_num: u32, ack_num: u32, data: &[u8]) -> Segment {
         Segment {
             kind,

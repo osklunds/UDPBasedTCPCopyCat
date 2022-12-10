@@ -93,7 +93,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     // Send SYN-ACK
     let mut tc_seq_num = rand::random();
     let uut_seq_num = syn.seq_num() + 1;
-    let syn_ack = Segment::new(SynAck, tc_seq_num, uut_seq_num, &vec![]);
+    let syn_ack = Segment::new_empty(SynAck, tc_seq_num, uut_seq_num);
     send_segment(&tc_socket, uut_addr, &syn_ack);
 
     // Receive ACK
@@ -128,8 +128,7 @@ fn uut_complete_read(state: &mut State, string: &str) {
 
     // Recv ACK from the uut
     let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_ack =
-        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &vec![]);
+    let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_ack, recv_seg);
 
     // Check that the uut received the correct data
@@ -175,8 +174,7 @@ fn uut_complete_write(state: &mut State, string: &str) {
     state.uut_seq_num += len as u32;
 
     // Send ack from the tc
-    let send_seg =
-        Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, &vec![]);
+    let send_seg = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state.tc_socket, state.uut_addr, &send_seg);
 
     recv_check_no_data(&state.tc_socket);
@@ -242,7 +240,7 @@ fn test_client_write_twice_first_segment_lost() {
 
     // tc pretends that it didn't get data1 by sending ACK (dup ack, fast retransmit) for the original seq_num
     let send_ack0 =
-        Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, &vec![]);
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state.tc_socket, state.uut_addr, &send_ack0);
 
     // This causes uut to retransmit everything from the acked seq_num to
@@ -255,13 +253,12 @@ fn test_client_write_twice_first_segment_lost() {
 
     // Now the tc sends ack for both of them
     let send_ack1 =
-        Segment::new(Ack, state.tc_seq_num, state.uut_seq_num + len1, &vec![]);
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len1);
     send_segment(&state.tc_socket, state.uut_addr, &send_ack1);
-    let send_ack2 = Segment::new(
+    let send_ack2 = Segment::new_empty(
         Ack,
         state.tc_seq_num,
         state.uut_seq_num + len1 + len2,
-        &vec![],
     );
     send_segment(&state.tc_socket, state.uut_addr, &send_ack2);
 

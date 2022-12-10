@@ -125,7 +125,7 @@ impl Stream {
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
         // Send SYN
         let seq_num = rand::random();
-        let syn = Segment::new(Syn, seq_num, 0, &vec![]);
+        let syn = Segment::new_empty(Syn, seq_num, 0);
         let encoded_syn = Segment::encode(&syn);
 
         udp_socket.send(&encoded_syn).await.unwrap();
@@ -145,7 +145,7 @@ impl Stream {
         let ack_num = syn_ack.seq_num() + 1;
 
         // Send ACK
-        let ack = Segment::new(Ack, new_seq_num, ack_num, &vec![]);
+        let ack = Segment::new_empty(Ack, new_seq_num, ack_num);
         let encoded_ack = Segment::encode(&ack);
 
         udp_socket.send(&encoded_ack).await.unwrap();
@@ -304,11 +304,10 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
 
     locked_connected_state.ack_num += len;
 
-    let ack = Segment::new(
+    let ack = Segment::new_empty(
         Ack,
         locked_connected_state.seq_num,
         locked_connected_state.ack_num,
-        &vec![],
     );
 
     let buffer = &mut locked_connected_state.buffer;
