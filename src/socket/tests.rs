@@ -1,5 +1,6 @@
 use super::*;
 
+use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
 use std::time::Duration;
 
@@ -178,7 +179,7 @@ fn uut_complete_write(state: &mut State, string: &str) {
         Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, &vec![]);
     send_segment(&state.tc_socket, state.uut_addr, &send_seg);
 
-    // TODO: Check buffer size
+    recv_check_no_data(&state.tc_socket);
 }
 
 #[test]
@@ -264,7 +265,7 @@ fn test_client_write_twice_first_segment_lost() {
     );
     send_segment(&state.tc_socket, state.uut_addr, &send_ack2);
 
-    // TODO: Check that buffer empty
+    recv_check_no_data(&state.tc_socket);
 }
 
 fn uut_write(uut_stream: &mut Stream, data: &[u8]) -> u32 {
@@ -284,6 +285,17 @@ fn recv_segment_from(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
     let mut buf = [0; 4096];
     let (amt, recv_addr) = tc_socket.recv_from(&mut buf).unwrap();
     (Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
+}
+
+fn recv_check_no_data(tc_socket: &UdpSocket) {
+    let mut buf = [0; 4096];
+    match tc_socket.recv(&mut buf) {
+        Err(err) => assert_eq!(ErrorKind::WouldBlock, err.kind()),
+        other => {
+            println!("Didn't get WouldBlock: {:?}", other);
+            unimplemented!()
+        }
+    };
 }
 
 fn send_segment(
