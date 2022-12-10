@@ -5,7 +5,7 @@ use self::Kind::*;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Eq, PartialEq, Debug, Clone)]
 pub struct Segment {
     kind: Kind,
     seq_num: u32,
