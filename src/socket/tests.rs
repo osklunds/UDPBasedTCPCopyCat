@@ -209,9 +209,14 @@ fn test_client_reads_and_writes() {
     uut_complete_write(&mut state, "seventh");
 }
 
+// TODO: retransmit_due_to_timeout
 #[test]
 fn test_client_write_retransmit_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    uut_complete_write(&mut state, "some initial data");
 
     // Send data1 from uut
     let data1 = "first data".as_bytes();
