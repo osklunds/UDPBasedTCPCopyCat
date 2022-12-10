@@ -209,9 +209,8 @@ fn test_client_reads_and_writes() {
     uut_complete_write(&mut state, "seventh");
 }
 
-// TODO: Same test case, but first ack lost instead
 #[test]
-fn test_client_write_twice_first_segment_lost() {
+fn test_client_write_retransmit_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
 
     // Send data1 from uut
@@ -220,9 +219,9 @@ fn test_client_write_twice_first_segment_lost() {
 
     // Recv data1 from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_seg1 =
+    let exp_ack1 =
         Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
-    assert_eq!(exp_seg1, recv_seg1);
+    assert_eq!(exp_ack1, recv_seg1);
 
     // Send data2 from uut
     let data2 = "second data".as_bytes();
@@ -230,13 +229,13 @@ fn test_client_write_twice_first_segment_lost() {
 
     // Recv data2 from the tc
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_seg2 = Segment::new(
+    let exp_ack2 = Segment::new(
         Ack,
         state.uut_seq_num + len1 as u32,
         state.tc_seq_num,
         &data2,
     );
-    assert_eq!(exp_seg2, recv_seg2);
+    assert_eq!(exp_ack2, recv_seg2);
 
     // tc pretends that it didn't get data1 by sending ACK (dup ack, fast retransmit) for the original seq_num
     let send_ack0 =
@@ -245,11 +244,10 @@ fn test_client_write_twice_first_segment_lost() {
 
     // This causes uut to retransmit everything from the acked seq_num to
     // "current"
-    // TODO: This is where the tc fails
     let recv_seg1_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
-    assert_eq!(exp_seg1, recv_seg1_retransmit);
+    assert_eq!(exp_ack1, recv_seg1_retransmit);
     let recv_seg2_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
-    assert_eq!(exp_seg2, recv_seg2_retransmit);
+    assert_eq!(exp_ack2, recv_seg2_retransmit);
 
     // Now the tc sends ack for both of them
     let send_ack1 =
