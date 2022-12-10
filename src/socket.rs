@@ -4,7 +4,7 @@ mod tests;
 use async_channel::{Receiver, Sender};
 use async_std::net::*;
 use futures::executor::block_on;
-use futures::lock::Mutex;
+use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
 use std::io::Result;
 use std::str;
@@ -43,6 +43,8 @@ struct ConnectedState {
     ack_num: u32,
     buffer: Vec<Segment>,
 }
+
+type LockedConnectedState<'a> = MutexGuard<'a, ConnectedState>;
 
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
@@ -304,33 +306,18 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
 
     locked_connected_state.ack_num += len;
 
+    handle_retransmissions_at_ack_recv(
+        ack_num,
+        &mut locked_connected_state,
+        &state,
+    )
+    .await;
+
     let ack = Segment::new_empty(
         Ack,
         locked_connected_state.seq_num,
         locked_connected_state.ack_num,
     );
-
-    let buffer = &mut locked_connected_state.buffer;
-    let mut something_was_acked = false;
-    while buffer.len() > 0 {
-        let first_unacked_segment = &buffer[0];
-        if ack_num
-            >= first_unacked_segment.seq_num()
-                + first_unacked_segment.data().len() as u32
-        {
-            buffer.remove(0);
-            something_was_acked = true;
-        } else {
-            if !something_was_acked {
-                // First unacked segment whose seq_num wasn't acked
-                for seg in buffer {
-                    send_segment(state.udp_socket, peer_addr, &seg).await;
-                }
-            }
-
-            break;
-        }
-    }
 
     drop(locked_connected_state);
 
@@ -342,6 +329,40 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
         match state.read_tx.send(data).await {
             Ok(()) => Some(state),
             Err(_) => None,
+        }
+    }
+}
+
+async fn handle_retransmissions_at_ack_recv(
+    ack_num: u32,
+    locked_connected_state: &mut LockedConnectedState<'_>,
+    state: &RecvSocketState<'_>,
+) {
+    let buffer = &mut locked_connected_state.buffer;
+
+    let buffer_len_before = buffer.len();
+    removed_acked_segments(ack_num, buffer);
+    let buffer_len_after = buffer.len();
+
+    let peer_addr = state.udp_socket.peer_addr().unwrap();
+
+    if buffer_len_after > 0 && buffer_len_after == buffer_len_before {
+        for seg in buffer {
+            send_segment(state.udp_socket, peer_addr, &seg).await;
+        }
+    }
+}
+
+fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
+    while buffer.len() > 0 {
+        let first_unacked_segment = &buffer[0];
+        if ack_num
+            >= first_unacked_segment.seq_num()
+                + first_unacked_segment.data().len() as u32
+        {
+            buffer.remove(0);
+        } else {
+            break;
         }
     }
 }
