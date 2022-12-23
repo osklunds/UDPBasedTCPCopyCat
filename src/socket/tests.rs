@@ -308,8 +308,13 @@ fn send_segment(
     tc_socket.send_to(&encoded_seq, uut_addr).unwrap();
 }
 
+// Possibly "complete" should be renamed "main flow"
 fn uut_complete_read_stream(stream: &mut Stream) -> Vec<u8> {
     let mut buf = [0; 4096];
     let amt = stream.read(&mut buf).unwrap();
     buf[0..amt].to_vec()
 }
+
+// Possibile "white box" things, or "test window" things
+// - Number of discarded received segments
+// - Buffer size
