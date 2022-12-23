@@ -224,9 +224,9 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Recv data1 from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_ack1 =
+    let exp_seg1 =
         Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
-    assert_eq!(exp_ack1, recv_seg1);
+    assert_eq!(exp_seg1, recv_seg1);
 
     // Send data2 from uut
     let data2 = "second data".as_bytes();
@@ -234,15 +234,16 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Recv data2 from the tc
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_ack2 = Segment::new(
+    let exp_seg2 = Segment::new(
         Ack,
         state.uut_seq_num + len1 as u32,
         state.tc_seq_num,
         &data2,
     );
-    assert_eq!(exp_ack2, recv_seg2);
+    assert_eq!(exp_seg2, recv_seg2);
 
-    // tc pretends that it didn't get data1 by sending ACK (dup ack, fast retransmit) for the original seq_num
+    // tc pretends that it didn't get data1 by sending ACK (dup ack, fast
+    // retransmit) for the original seq_num
     let send_ack0 =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state.tc_socket, state.uut_addr, &send_ack0);
@@ -250,9 +251,9 @@ fn test_client_write_retransmit_due_to_old_ack() {
     // This causes uut to retransmit everything from the acked seq_num to
     // "current"
     let recv_seg1_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
-    assert_eq!(exp_ack1, recv_seg1_retransmit);
+    assert_eq!(exp_seg1, recv_seg1_retransmit);
     let recv_seg2_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
-    assert_eq!(exp_ack2, recv_seg2_retransmit);
+    assert_eq!(exp_seg2, recv_seg2_retransmit);
 
     // Now the tc sends ack for both of them
     let send_ack1 =
