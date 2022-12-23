@@ -39,8 +39,8 @@ struct ClientStream {
 }
 
 struct ConnectedState {
-    seq_num: u32,
-    ack_num: u32,
+    send_next: u32,
+    receive_next: u32,
     buffer: Vec<Segment>,
 }
 
@@ -113,11 +113,12 @@ impl Stream {
         read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<Vec<u8>>,
     ) {
-        let (seq_num, ack_num) = Self::client_handshake(&udp_socket).await;
+        let (send_next, receive_next) =
+            Self::client_handshake(&udp_socket).await;
 
         let state = ConnectedState {
-            seq_num,
-            ack_num,
+            send_next,
+            receive_next,
             buffer: Vec::new(),
         };
 
@@ -126,8 +127,8 @@ impl Stream {
 
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
         // Send SYN
-        let seq_num = rand::random();
-        let syn = Segment::new_empty(Syn, seq_num, 0);
+        let send_next = rand::random();
+        let syn = Segment::new_empty(Syn, send_next, 0);
         let encoded_syn = Segment::encode(&syn);
 
         udp_socket.send(&encoded_syn).await.unwrap();
@@ -138,21 +139,21 @@ impl Stream {
 
         let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
 
-        let new_seq_num = seq_num + 1;
+        let new_send_next = send_next + 1;
         // TODO: Handle error instead
-        assert_eq!(new_seq_num, syn_ack.ack_num());
+        assert_eq!(new_send_next, syn_ack.ack_num());
         assert_eq!(SynAck, syn_ack.kind());
         assert_eq!(0, syn_ack.data().len());
 
-        let ack_num = syn_ack.seq_num() + 1;
+        let receive_next = syn_ack.seq_num() + 1;
 
         // Send ACK
-        let ack = Segment::new_empty(Ack, new_seq_num, ack_num);
+        let ack = Segment::new_empty(Ack, new_send_next, receive_next);
         let encoded_ack = Segment::encode(&ack);
 
         udp_socket.send(&encoded_ack).await.unwrap();
 
-        (new_seq_num, ack_num)
+        (new_send_next, receive_next)
     }
 
     fn accept<A: ToSocketAddrs>(
@@ -296,15 +297,18 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
 
     // TODO: Reject invalid segments instead
     // The segment shouldn't ack something not sent
-    assert!(locked_connected_state.seq_num >= segment.ack_num());
+    assert!(locked_connected_state.send_next >= segment.ack_num());
     // The segment should contain the next expected data
-    assert_eq!(locked_connected_state.ack_num, segment.seq_num());
+    assert_eq!(locked_connected_state.receive_next, segment.seq_num());
 
     let ack_num = segment.ack_num();
+    let seq_num = segment.seq_num();
     let data = segment.to_data();
     let len = data.len() as u32;
 
-    locked_connected_state.ack_num += len;
+    // TODO: If segment.seq_num doesn't match state.receive_next, disacrd it
+    assert_eq!(locked_connected_state.receive_next, seq_num);
+    locked_connected_state.receive_next += len;
 
     handle_retransmissions_at_ack_recv(
         ack_num,
@@ -315,8 +319,8 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
 
     let ack = Segment::new_empty(
         Ack,
-        locked_connected_state.seq_num,
-        locked_connected_state.ack_num,
+        locked_connected_state.send_next,
+        locked_connected_state.receive_next,
     );
 
     drop(locked_connected_state);
@@ -381,11 +385,11 @@ async fn recv_write_rx(
             let mut locked_connected_state = state.connected_state.lock().await;
             let seg = Segment::new(
                 Ack,
-                locked_connected_state.seq_num,
-                locked_connected_state.ack_num,
+                locked_connected_state.send_next,
+                locked_connected_state.receive_next,
                 &data,
             );
-            locked_connected_state.seq_num += data.len() as u32;
+            locked_connected_state.send_next += data.len() as u32;
             locked_connected_state.buffer.push(seg.clone());
             drop(locked_connected_state);
 
