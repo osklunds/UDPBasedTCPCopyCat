@@ -257,8 +257,11 @@ async fn connected_loop(
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
     let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
 
-    pin_mut!(future_recv_socket, future_recv_write_rx);
+    // Need a separate timeout future. recv_socket returns a bool indicating
+    // if the timeout future so be cleared or not. recv_write_rx returns
+    // Option<Future> which replaces the old timeout future.
 
+    pin_mut!(future_recv_socket, future_recv_write_rx);
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {

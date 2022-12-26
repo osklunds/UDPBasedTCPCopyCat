@@ -209,6 +209,32 @@ fn test_client_reads_and_writes() {
     uut_complete_write(&mut state, "seventh");
 }
 
+#[test]
+fn test_client_write_retransmit_due_to_timeout() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    uut_complete_write(&mut state, "some initial data");
+
+    // Send data from uut
+    let data = "some data".as_bytes();
+    let _len = uut_write(&mut state.uut_stream, data);
+
+    // Recv data from the tc
+    let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
+    assert_eq!(exp_seg, recv_seg1);
+
+    // tc pretends it didn't get data by not sending an ACK
+    // Sleep and then get a retransmission
+
+    thread::sleep(Duration::from_millis(100));
+
+    let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
+    assert_eq!(exp_seg, recv_seg2);
+}
+
 // TODO: retransmit_due_to_timeout
 #[test]
 fn test_client_write_retransmit_due_to_old_ack() {
