@@ -266,10 +266,18 @@ async fn connected_loop(
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                if let Continue(new_recv_socket_state, _restart_timer) = new_recv_socket_state {
+                if let Continue(new_recv_socket_state, restart_timer) = new_recv_socket_state {
                     let new_future_recv_socket =
                         recv_socket(new_recv_socket_state).fuse();
                     future_recv_socket.set(new_future_recv_socket);
+
+                    // TODO: enum with Restart and Cancel
+                    if restart_timer {
+                        future_timeout.set(timeout(false).fuse());
+                    } else {
+                        // TODO: Remove/cancel instead
+                        future_timeout.set(timeout(true).fuse());
+                    }
                 } else {
                     return;
                 }
@@ -334,7 +342,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     assert_eq!(locked_connected_state.receive_next, seq_num);
     locked_connected_state.receive_next += len;
 
-    handle_retransmissions_at_ack_recv(
+    let retransmitted = handle_retransmissions_at_ack_recv(
         ack_num,
         &mut locked_connected_state,
         &state,
@@ -350,12 +358,12 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     drop(locked_connected_state);
 
     if len == 0 {
-        Continue(state, false)
+        Continue(state, retransmitted)
     } else {
         send_segment(state.udp_socket, peer_addr, &ack).await;
 
         match state.read_tx.send(data).await {
-            Ok(()) => Continue(state, false),
+            Ok(()) => Continue(state, retransmitted),
             Err(_) => Exit,
         }
     }
@@ -365,7 +373,7 @@ async fn handle_retransmissions_at_ack_recv(
     ack_num: u32,
     locked_connected_state: &mut LockedConnectedState<'_>,
     state: &RecvSocketState<'_>,
-) {
+) -> bool {
     let buffer = &mut locked_connected_state.buffer;
 
     let buffer_len_before = buffer.len();
@@ -378,11 +386,13 @@ async fn handle_retransmissions_at_ack_recv(
     assert!(buffer_len_after <= buffer_len_before);
     let made_progress = buffer_len_after < buffer_len_before;
     let segments_remain = buffer_len_after > 0;
-    if segments_remain && !made_progress {
+    let need_retransmit = segments_remain && !made_progress;
+    if need_retransmit {
         for seg in buffer {
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
     }
+    need_retransmit
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
