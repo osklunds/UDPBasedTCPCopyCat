@@ -353,6 +353,8 @@ async fn handle_retransmissions_at_ack_recv(
 
     let peer_addr = state.udp_socket.peer_addr().unwrap();
 
+    // Make sure this if statement is thoroughly tested
+    assert!(buffer_len_after <= buffer_len_before);
     if buffer_len_after > 0 && buffer_len_after == buffer_len_before {
         for seg in buffer {
             send_segment(state.udp_socket, peer_addr, &seg).await;
