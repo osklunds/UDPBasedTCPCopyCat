@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use self::RecvSocketResult::*;
 use crate::segment::Kind::*;
 use crate::segment::Segment;
 
@@ -265,7 +266,7 @@ async fn connected_loop(
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                if let Some(new_recv_socket_state) = new_recv_socket_state {
+                if let Continue(new_recv_socket_state, _restart_timer) = new_recv_socket_state {
                     let new_future_recv_socket =
                         recv_socket(new_recv_socket_state).fuse();
                     future_recv_socket.set(new_future_recv_socket);
@@ -301,13 +302,18 @@ async fn timeout(forever: bool) {
     }
 }
 
+enum RecvSocketResult<'a> {
+    Continue(RecvSocketState<'a>, bool),
+    Exit,
+}
+
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
     read_tx: Sender<Vec<u8>>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
+async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     let peer_addr = state.udp_socket.peer_addr().unwrap();
     let segment = recv_segment(state.udp_socket, peer_addr).await;
 
@@ -344,13 +350,13 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
     drop(locked_connected_state);
 
     if len == 0 {
-        Some(state)
+        Continue(state, false)
     } else {
         send_segment(state.udp_socket, peer_addr, &ack).await;
 
         match state.read_tx.send(data).await {
-            Ok(()) => Some(state),
-            Err(_) => None,
+            Ok(()) => Continue(state, false),
+            Err(_) => Exit,
         }
     }
 }
