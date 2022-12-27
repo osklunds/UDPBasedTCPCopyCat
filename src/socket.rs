@@ -376,7 +376,9 @@ async fn handle_retransmissions_at_ack_recv(
 
     // Make sure this if statement is thoroughly tested
     assert!(buffer_len_after <= buffer_len_before);
-    if buffer_len_after > 0 && buffer_len_after == buffer_len_before {
+    let made_progress = buffer_len_after < buffer_len_before;
+    let segments_remain = buffer_len_after > 0;
+    if segments_remain && !made_progress {
         for seg in buffer {
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
