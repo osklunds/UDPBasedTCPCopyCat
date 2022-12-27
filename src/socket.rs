@@ -256,12 +256,12 @@ async fn connected_loop(
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
     let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
-
+    let future_timeout = timeout(true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
     // if the timeout future so be cleared or not. recv_write_rx returns
     // Option<Future> which replaces the old timeout future.
 
-    pin_mut!(future_recv_socket, future_recv_write_rx);
+    pin_mut!(future_recv_socket, future_recv_write_rx, future_timeout);
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
@@ -282,7 +282,22 @@ async fn connected_loop(
                     return;
                 }
             },
+            _ = future_timeout => {
+                println!("timeout triggered");
+                future_timeout.set(timeout(true).fuse());
+            }
         };
+    }
+}
+
+async fn timeout(forever: bool) {
+    println!("started timeout fun");
+    if forever {
+        loop {
+            async_std::task::sleep(Duration::from_millis(100)).await;
+        }
+    } else {
+        async_std::task::sleep(Duration::from_millis(100)).await;
     }
 }
 
