@@ -284,15 +284,21 @@ async fn connected_loop(
                     return;
                 }
             },
+
             new_write_rx_state = future_recv_write_rx => {
                 if let Some(new_write_rx_state) = new_write_rx_state {
                     let new_future_recv_write_rx =
                         recv_write_rx(new_write_rx_state).fuse();
+                    // TODO: This one needs to indicate if a timer is needed
+                    // i.e. if it made empty buffer non-empty. The code here
+                    // needs a variable to know if a timer is running or not
+                    // If running, do nothing. If not running, start
                     future_recv_write_rx.set(new_future_recv_write_rx);
                 } else {
                     return;
                 }
             },
+
             _ = future_timeout => {
                 println!("timeout triggered");
                 let locked_connected_state = connected_state_in_arc.lock().await;
