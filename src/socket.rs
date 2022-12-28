@@ -252,7 +252,7 @@ async fn connected_loop(
     let recv_write_rx_state = RecvWriteRxState {
         udp_socket: &udp_socket,
         write_rx,
-        connected_state: connected_state_in_arc,
+        connected_state: Arc::clone(&connected_state_in_arc),
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
@@ -273,8 +273,10 @@ async fn connected_loop(
 
                     // TODO: enum with Restart and Cancel
                     if restart_timer {
+                        println!("recv returned with restart");
                         future_timeout.set(timeout(false).fuse());
                     } else {
+                        println!("recv returned no restart");
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(true).fuse());
                     }
@@ -293,7 +295,13 @@ async fn connected_loop(
             },
             _ = future_timeout => {
                 println!("timeout triggered");
-                future_timeout.set(timeout(true).fuse());
+                let locked_connected_state = connected_state_in_arc.lock().await;
+
+                for segment in &locked_connected_state.buffer {
+                    send_segment(&udp_socket, udp_socket.peer_addr().unwrap(), &segment).await;
+                }
+
+                future_timeout.set(timeout(false).fuse());
             }
         };
     }
