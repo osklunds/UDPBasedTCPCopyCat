@@ -58,6 +58,10 @@ use crate::segment::Segment;
 //     ()
 // }
 
+// Test cases needed:
+// - Cumulative ack, one full segment, one byte more and one byte less
+//   than the border
+
 struct State {
     tc_socket: UdpSocket,
     uut_stream: Stream,
@@ -241,7 +245,6 @@ fn test_client_write_retransmit_due_to_timeout() {
     recv_check_no_data(&state.tc_socket);
 }
 
-// TODO: retransmit_due_to_timeout
 #[test]
 fn test_client_write_retransmit_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
