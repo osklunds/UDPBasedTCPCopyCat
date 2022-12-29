@@ -12,7 +12,6 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use self::RecvSocketResult::*;
 use crate::segment::Kind::*;
 use crate::segment::Segment;
 
@@ -262,11 +261,14 @@ async fn connected_loop(
     // if the timeout future so be cleared or not. recv_write_rx returns
     // Option<Future> which replaces the old timeout future.
 
+    // TODO: Maybe move to connected state. Maybe it can be cleaned up
+    // in some other better way.
+    let mut timer_running = false;
     pin_mut!(future_recv_socket, future_recv_write_rx, future_timeout);
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                if let Continue(new_recv_socket_state, restart_timer) = new_recv_socket_state {
+                if let RecvSocketResult::Continue(new_recv_socket_state, restart_timer) = new_recv_socket_state {
                     let new_future_recv_socket =
                         recv_socket(new_recv_socket_state).fuse();
                     future_recv_socket.set(new_future_recv_socket);
@@ -275,18 +277,20 @@ async fn connected_loop(
                     if restart_timer {
                         println!("recv returned with restart");
                         future_timeout.set(timeout(false).fuse());
+                        timer_running = true;
                     } else {
                         println!("recv returned no restart");
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(true).fuse());
+                        timer_running = false;
                     }
                 } else {
                     return;
                 }
             },
 
-            new_write_rx_state = future_recv_write_rx => {
-                if let Some(new_write_rx_state) = new_write_rx_state {
+            result = future_recv_write_rx => {
+                if let RecvWriteRxResult::Continue(new_write_rx_state, start_timer) = result {
                     let new_future_recv_write_rx =
                         recv_write_rx(new_write_rx_state).fuse();
                     // TODO: This one needs to indicate if a timer is needed
@@ -294,6 +298,14 @@ async fn connected_loop(
                     // needs a variable to know if a timer is running or not
                     // If running, do nothing. If not running, start
                     future_recv_write_rx.set(new_future_recv_write_rx);
+
+                    // let locked_connected_state = connected_state_in_arc.lock().await;
+                    // let buffer = &locked_connected_state.buffer;
+                    // assert_eq!(timer_running, buffer.len() > 0);
+                    if !timer_running && start_timer {
+                        future_timeout.set(timeout(false).fuse());
+                        timer_running = true;
+                    }
                 } else {
                     return;
                 }
@@ -372,13 +384,13 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     drop(locked_connected_state);
 
     if len == 0 {
-        Continue(state, retransmitted)
+        RecvSocketResult::Continue(state, retransmitted)
     } else {
         send_segment(state.udp_socket, peer_addr, &ack).await;
 
         match state.read_tx.send(data).await {
-            Ok(()) => Continue(state, retransmitted),
-            Err(_) => Exit,
+            Ok(()) => RecvSocketResult::Continue(state, retransmitted),
+            Err(_) => RecvSocketResult::Exit,
         }
     }
 }
@@ -423,15 +435,18 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     }
 }
 
+enum RecvWriteRxResult<'a> {
+    Continue(RecvWriteRxState<'a>, bool),
+    Exit,
+}
+
 struct RecvWriteRxState<'a> {
     udp_socket: &'a UdpSocket,
     write_rx: Receiver<Vec<u8>>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_write_rx(
-    state: RecvWriteRxState<'_>,
-) -> Option<RecvWriteRxState> {
+async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
     match state.write_rx.recv().await {
         Ok(data) => {
             let mut locked_connected_state = state.connected_state.lock().await;
@@ -443,13 +458,14 @@ async fn recv_write_rx(
             );
             locked_connected_state.send_next += data.len() as u32;
             locked_connected_state.buffer.push(seg.clone());
+            let start_timer = locked_connected_state.buffer.len() == 1;
             drop(locked_connected_state);
 
             let peer_addr = state.udp_socket.peer_addr().unwrap();
             send_segment(state.udp_socket, peer_addr, &seg).await;
-            Some(state)
+            RecvWriteRxResult::Continue(state, start_timer)
         }
-        Err(_) => None,
+        Err(_) => RecvWriteRxResult::Exit,
     }
 }
 

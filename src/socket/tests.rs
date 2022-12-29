@@ -228,11 +228,12 @@ fn test_client_write_retransmit_due_to_timeout() {
 
     // tc pretends it didn't get data by not sending an ACK
     // Sleep and then get a retransmission
-
-    thread::sleep(Duration::from_millis(1000));
+    thread::sleep(Duration::from_millis(150));
 
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg, recv_seg2);
+
+    recv_check_no_data(&state.tc_socket);
 }
 
 // TODO: retransmit_due_to_timeout
@@ -319,8 +320,7 @@ fn recv_check_no_data(tc_socket: &UdpSocket) {
     match tc_socket.recv(&mut buf) {
         Err(err) => assert_eq!(ErrorKind::WouldBlock, err.kind()),
         other => {
-            println!("Didn't get WouldBlock: {:?}", other);
-            unimplemented!()
+            panic!("Didn't get WouldBlock, instead got: {:?}", other);
         }
     };
 }
