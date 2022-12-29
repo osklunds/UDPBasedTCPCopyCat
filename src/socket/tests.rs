@@ -61,6 +61,7 @@ use crate::segment::Segment;
 // Test cases needed:
 // - Cumulative ack, one full segment, one byte more and one byte less
 //   than the border
+// - Send two segments, ack the first, only second is retransmitted
 
 struct State {
     tc_socket: UdpSocket,
@@ -240,6 +241,74 @@ fn test_client_write_retransmit_due_to_timeout() {
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
     send_segment(&state.tc_socket, state.uut_addr, &ack);
+
+    thread::sleep(Duration::from_millis(150));
+    recv_check_no_data(&state.tc_socket);
+}
+// TODO: test that timer isn't restarted when something new is sent
+// TODO: test that timer is restarted when one ack is received
+#[test]
+fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    uut_complete_write(&mut state, "some initial data");
+
+    // Send data from uut
+    let data1 = "some data".as_bytes();
+    let len1 = uut_write(&mut state.uut_stream, data1);
+    let data2 = "some other data".as_bytes();
+    let len2 = uut_write(&mut state.uut_stream, data2);
+    let data3 = "some more data".as_bytes();
+    let len3 = uut_write(&mut state.uut_stream, data3);
+
+    // Recv data from the tc
+    let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg1 =
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+    assert_eq!(exp_seg1, recv_seg1);
+
+    let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg2 =
+        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
+    assert_eq!(exp_seg2, recv_seg2);
+
+    let recv_seg3 = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg3 = Segment::new(
+        Ack,
+        state.uut_seq_num + len1 + len2,
+        state.tc_seq_num,
+        &data3,
+    );
+    assert_eq!(exp_seg3, recv_seg3);
+
+    // tc pretends it didn't get data by not sending an ACK
+    // Sleep and then get retransmissions
+    thread::sleep(Duration::from_millis(150));
+
+    let recv_seg1_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    assert_eq!(exp_seg1, recv_seg1_retrans);
+    let recv_seg2_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    assert_eq!(exp_seg2, recv_seg2_retrans);
+    let recv_seg3_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    assert_eq!(exp_seg3, recv_seg3_retrans);
+
+    let ack1 =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len1);
+    let ack2 = Segment::new_empty(
+        Ack,
+        state.tc_seq_num,
+        state.uut_seq_num + len1 + len2,
+    );
+    let ack3 = Segment::new_empty(
+        Ack,
+        state.tc_seq_num,
+        state.uut_seq_num + len1 + len2 + len3,
+    );
+    send_segment(&state.tc_socket, state.uut_addr, &ack1);
+    send_segment(&state.tc_socket, state.uut_addr, &ack2);
+    send_segment(&state.tc_socket, state.uut_addr, &ack3);
 
     thread::sleep(Duration::from_millis(150));
     recv_check_no_data(&state.tc_socket);
