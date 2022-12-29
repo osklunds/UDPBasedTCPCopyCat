@@ -219,7 +219,7 @@ fn test_client_write_retransmit_due_to_timeout() {
 
     // Send data from uut
     let data = "some data".as_bytes();
-    let _len = uut_write(&mut state.uut_stream, data);
+    let len = uut_write(&mut state.uut_stream, data);
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -233,6 +233,11 @@ fn test_client_write_retransmit_due_to_timeout() {
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg, recv_seg2);
 
+    let ack =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
+    send_segment(&state.tc_socket, state.uut_addr, &ack);
+
+    thread::sleep(Duration::from_millis(150));
     recv_check_no_data(&state.tc_socket);
 }
 

@@ -275,11 +275,9 @@ async fn connected_loop(
 
                     // TODO: enum with Restart and Cancel
                     if restart_timer {
-                        println!("recv returned with restart");
                         future_timeout.set(timeout(false).fuse());
                         timer_running = true;
                     } else {
-                        println!("recv returned no restart");
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(true).fuse());
                         timer_running = false;
@@ -326,7 +324,6 @@ async fn connected_loop(
 }
 
 async fn timeout(forever: bool) {
-    println!("started timeout fun");
     if forever {
         loop {
             async_std::task::sleep(Duration::from_millis(100)).await;
