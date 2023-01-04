@@ -47,6 +47,7 @@ fn wait_for_sleep_called_no_panic() -> bool {
             future::timeout(duration, recv_sleep_called).await
         }
     });
+
     match timeout_result {
         Ok(recv_result) => {
             recv_result.expect("Error receiving from SLEEP_CALLED_RX");
