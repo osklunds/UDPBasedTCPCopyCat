@@ -1,7 +1,6 @@
 use super::*;
 
 use std::thread;
-use std::time::Duration;
 
 #[test]
 fn test_sleep_called() {
@@ -16,4 +15,11 @@ fn test_sleep_called() {
     wait_for_sleep_called();
     let_sleep_return();
     join_handle.join().unwrap();
+}
+
+#[test]
+fn test_sleep_not_called() {
+    initialize();
+
+    assert!(!wait_for_sleep_called_no_panic());
 }
