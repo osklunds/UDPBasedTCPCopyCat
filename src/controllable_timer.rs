@@ -39,7 +39,11 @@ pub fn wait_for_sleep_called() {
 
 pub fn let_sleep_return() {
     unsafe {
-        LET_SLEEP_RETURN_TX.as_ref().unwrap().try_send(()).unwrap();
+        LET_SLEEP_RETURN_TX
+            .as_ref()
+            .expect("LET_SLEEP_RETURN_TX was None")
+            .try_send(())
+            .expect("Error sending on LET_SLEEP_RETURN_TX");
     }
 }
 
@@ -47,7 +51,17 @@ pub fn let_sleep_return() {
 
 pub async fn sleep() {
     unsafe {
-        SLEEP_CALLED_TX.as_ref().unwrap().try_send(()).unwrap();
-        LET_SLEEP_RETURN_RX.as_ref().unwrap().recv().await.unwrap();
+        SLEEP_CALLED_TX
+            .as_ref()
+            .expect("SLEEP_CALLED_TX was None")
+            .try_send(())
+            .expect("Error sending on SLEEP_CALLED_TX");
+
+        LET_SLEEP_RETURN_RX
+            .as_ref()
+            .expect("LET_SLEEP_RETURN_RX was None")
+            .recv()
+            .await
+            .expect("Error receiving on LET_SLEEP_RETURN_RX")
     }
 }
