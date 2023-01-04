@@ -44,8 +44,7 @@ fn wait_for_sleep_called_no_panic() -> bool {
                 .expect("SLEEP_CALLED_RX was None")
                 .recv();
             let duration = Duration::from_millis(10);
-            let x = future::timeout(duration, recv_sleep_called).await;
-            x
+            future::timeout(duration, recv_sleep_called).await
         }
     });
     match timeout_result {
