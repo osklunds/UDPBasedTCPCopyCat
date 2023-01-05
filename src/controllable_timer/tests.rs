@@ -8,11 +8,12 @@ fn test_sleep_called() {
     let (waiter, returner, sleeper) = create();
 
     // Act
-    spawn_thread_calling_sleep(sleeper);
+    let join_handle = spawn_thread_calling_sleep(sleeper);
 
     // Assert
     waiter.wait_for_sleep_called();
     returner.let_sleep_return();
+    join_handle.join().unwrap();
 }
 
 #[test]
@@ -20,10 +21,10 @@ fn test_sleep_called_twice() {
     // Arrange
     let (waiter1, returner1, sleeper1) = create();
     let (waiter2, returner2, sleeper2) = create();
-    spawn_thread_calling_sleep(sleeper1);
+    let join_handle1 = spawn_thread_calling_sleep(sleeper1);
 
     // Act
-    spawn_thread_calling_sleep(sleeper2);
+    let join_handle2 = spawn_thread_calling_sleep(sleeper2);
 
     // Assert
     waiter2.wait_for_sleep_called();
@@ -31,6 +32,9 @@ fn test_sleep_called_twice() {
 
     returner1.let_sleep_return();
     returner2.let_sleep_return();
+
+    join_handle2.join().unwrap();
+    join_handle1.join().unwrap();
 }
 
 #[test]
