@@ -29,7 +29,7 @@ fn test_sleep_not_called() {
 }
 
 #[test]
-fn test_sleep_called_twice() {
+fn test_sleep_called_before_sleep_returned() {
     // Arrange
     initialize();
 
@@ -40,7 +40,7 @@ fn test_sleep_called_twice() {
     let error = catch_panic(|| block_on_sleep());
 
     // Assert
-    assert!(error.starts_with("Error sending on sleep_called_tx: Full"));
+    assert!(error.starts_with(SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG));
 }
 
 fn spawn_thread_calling_sleep() -> thread::JoinHandle<()> {

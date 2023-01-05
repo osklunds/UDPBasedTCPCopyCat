@@ -20,6 +20,9 @@ struct Channels {
 
 static mut CHANNELS: Option<Channels> = None;
 
+const SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG: &str =
+    "Sleep called before sleep returned";
+
 // Test Case API
 
 pub fn initialize() {
@@ -74,12 +77,16 @@ pub fn let_sleep_return() {
 
 pub async fn sleep() {
     unsafe {
-        get_channels()
-            .sleep_called_tx
-            .lock()
-            .await
-            .try_send(())
-            .expect("Error sending on sleep_called_tx");
+        let send_result =
+            get_channels().sleep_called_tx.lock().await.try_send(());
+
+        match send_result {
+            Ok(_) => (),
+            Err(async_channel::TrySendError::Full(_)) => {
+                panic!("{}", SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG)
+            }
+            Err(_) => panic!("send on sleep_called_tx failed"),
+        }
 
         get_channels()
             .let_sleep_return_rx
