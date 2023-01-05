@@ -8,23 +8,22 @@ mod tests;
 use async_channel::{Receiver, Sender};
 use async_std::future;
 use futures::executor::block_on;
-use futures::lock::{Mutex, MutexGuard};
 use std::time::Duration;
 
 const WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG: &str =
     "Waiting for sleep to be called timed out";
 
 pub struct Waiter {
-    sleep_called_rx: Mutex<Receiver<()>>,
+    sleep_called_rx: Receiver<()>,
 }
 
 pub struct Returner {
-    let_sleep_return_tx: Mutex<Sender<()>>,
+    let_sleep_return_tx: Sender<()>,
 }
 
 pub struct Sleeper {
-    sleep_called_tx: Mutex<Sender<()>>,
-    let_sleep_return_rx: Mutex<Receiver<()>>,
+    sleep_called_tx: Sender<()>,
+    let_sleep_return_rx: Receiver<()>,
 }
 
 // Test Case API
@@ -33,17 +32,15 @@ pub fn create() -> (Waiter, Returner, Sleeper) {
     let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
     let (let_sleep_return_tx, let_sleep_return_rx) = async_channel::bounded(1);
 
-    let waiter = Waiter {
-        sleep_called_rx: Mutex::new(sleep_called_rx),
-    };
+    let waiter = Waiter { sleep_called_rx };
 
     let returner = Returner {
-        let_sleep_return_tx: Mutex::new(let_sleep_return_tx),
+        let_sleep_return_tx,
     };
 
     let sleeper = Sleeper {
-        sleep_called_tx: Mutex::new(sleep_called_tx),
-        let_sleep_return_rx: Mutex::new(let_sleep_return_rx),
+        sleep_called_tx,
+        let_sleep_return_rx,
     };
 
     (waiter, returner, sleeper)
@@ -52,10 +49,8 @@ pub fn create() -> (Waiter, Returner, Sleeper) {
 impl Waiter {
     pub fn wait_for_sleep_called(self) {
         block_on(async {
-            let sleep_called_rx = self.sleep_called_rx.lock().await;
-            let recv_sleep_called = sleep_called_rx.recv();
-
             let duration = Duration::from_millis(10);
+            let recv_sleep_called = self.sleep_called_rx.recv();
             let timeout_result =
                 future::timeout(duration, recv_sleep_called).await;
 
@@ -70,8 +65,6 @@ impl Returner {
     pub fn let_sleep_return(self) {
         block_on(async {
             self.let_sleep_return_tx
-                .lock()
-                .await
                 .try_send(())
                 .expect("Error sending on let_sleep_return_tx");
         });
@@ -82,14 +75,10 @@ impl Returner {
 impl Sleeper {
     pub async fn sleep(self) {
         self.sleep_called_tx
-            .lock()
-            .await
             .try_send(())
             .expect("send on sleep_called_tx failed");
 
         self.let_sleep_return_rx
-            .lock()
-            .await
             .recv()
             .await
             .expect("Error receiving on let_sleep_return_rx")
