@@ -8,11 +8,8 @@ fn test_sleep_called() {
     initialize();
 
     // Act
-    let join_handle = thread::spawn(|| {
-        block_on(async {
-            sleep().await;
-        })
-    });
+
+    let join_handle = thread::spawn(|| block_on(async { sleep().await }));
 
     // Assert
     wait_for_sleep_called();
@@ -26,9 +23,28 @@ fn test_sleep_not_called() {
     initialize();
 
     // Act
-    let result = std::panic::catch_unwind(|| wait_for_sleep_called());
+    let error = catch_panic(wait_for_sleep_called);
 
     // Assert
-    let error = result.err().unwrap().downcast::<String>().unwrap();
     assert!(error.starts_with("Timeout waiting for sleep to be called"));
+}
+
+#[test]
+fn test_sleep_called_twice() {
+    // Arrange
+    initialize();
+
+    thread::spawn(|| block_on(async { sleep().await }));
+    thread::sleep(Duration::from_millis(1));
+
+    // Act
+    let error = catch_panic(|| block_on(async { sleep().await }));
+
+    // Assert
+    assert!(error.starts_with("Error sending on SLEEP_CALLED_TX: Full"));
+}
+
+fn catch_panic(f: fn() -> ()) -> String {
+    let result = std::panic::catch_unwind(f);
+    *result.err().unwrap().downcast::<String>().unwrap()
 }
