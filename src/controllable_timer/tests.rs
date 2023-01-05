@@ -25,7 +25,7 @@ fn test_sleep_not_called() {
     let error = catch_panic(wait_for_sleep_called);
 
     // Assert
-    assert!(error.starts_with("Timeout waiting for sleep to be called"));
+    assert!(error.starts_with(WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG));
 }
 
 #[test]

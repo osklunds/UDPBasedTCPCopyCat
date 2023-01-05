@@ -22,6 +22,8 @@ static mut CHANNELS: Option<Channels> = None;
 
 const SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG: &str =
     "Sleep called before sleep returned";
+const WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG: &str =
+    "Waiting for sleep to be called timed out";
 
 // Test Case API
 
@@ -54,7 +56,7 @@ pub fn wait_for_sleep_called() {
                 future::timeout(duration, recv_sleep_called).await;
 
             let recv_result =
-                timeout_result.expect("Timeout waiting for sleep to be called");
+                timeout_result.expect(WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG);
             recv_result.expect("Error receiving from sleep_called_rx");
         }
     });
