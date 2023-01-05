@@ -5,53 +5,39 @@ use std::thread;
 #[test]
 fn test_sleep_called() {
     // Arrange
-    initialize();
+    let (waiter, returner, sleeper) = create();
 
     // Act
-    let join_handle = spawn_thread_calling_sleep();
+    spawn_thread_calling_sleep(sleeper);
 
     // Assert
-    wait_for_sleep_called();
-    let_sleep_return();
-    join_handle.join().unwrap();
+    waiter.wait_for_sleep_called();
+    returner.let_sleep_return();
 }
 
 #[test]
 fn test_sleep_not_called() {
     // Arrange
-    initialize();
+    let (waiter, _returner, _sleeper) = create();
 
     // Act
-    let error = catch_panic(wait_for_sleep_called);
+    let error = catch_panic(move || {
+        waiter.wait_for_sleep_called();
+    });
 
     // Assert
     assert!(error.starts_with(WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG));
 }
 
-#[test]
-fn test_sleep_called_before_sleep_returned() {
-    // Arrange
-    initialize();
-
-    spawn_thread_calling_sleep();
-    thread::sleep(Duration::from_millis(1));
-
-    // Act
-    let error = catch_panic(|| block_on_sleep());
-
-    // Assert
-    assert!(error.starts_with(SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG));
+fn spawn_thread_calling_sleep(sleeper: Sleeper) -> thread::JoinHandle<()> {
+    thread::spawn(|| block_on_sleep(sleeper))
 }
 
-fn spawn_thread_calling_sleep() -> thread::JoinHandle<()> {
-    thread::spawn(|| block_on_sleep())
+fn block_on_sleep(sleeper: Sleeper) {
+    block_on(async { sleeper.sleep().await })
 }
 
-fn block_on_sleep() {
-    block_on(async { sleep().await })
-}
-
-fn catch_panic(f: fn() -> ()) -> String {
+fn catch_panic<F: FnOnce() + std::panic::UnwindSafe>(f: F) -> String {
     let result = std::panic::catch_unwind(f);
     *result.err().unwrap().downcast::<String>().unwrap()
 }

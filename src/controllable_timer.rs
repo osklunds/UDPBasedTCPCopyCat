@@ -11,44 +11,50 @@ use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use std::time::Duration;
 
-struct Channels {
-    sleep_called_tx: Mutex<Sender<()>>,
-    sleep_called_rx: Mutex<Receiver<()>>,
-    let_sleep_return_tx: Mutex<Sender<()>>,
-    let_sleep_return_rx: Mutex<Receiver<()>>,
-}
-
-static mut CHANNELS: Option<Channels> = None;
-
 const SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG: &str =
     "Sleep called before sleep returned";
 const WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG: &str =
     "Waiting for sleep to be called timed out";
 
+pub struct Waiter {
+    sleep_called_rx: Mutex<Receiver<()>>,
+}
+
+pub struct Returner {
+    let_sleep_return_tx: Mutex<Sender<()>>,
+}
+
+pub struct Sleeper {
+    sleep_called_tx: Mutex<Sender<()>>,
+    let_sleep_return_rx: Mutex<Receiver<()>>,
+}
+
 // Test Case API
 
-pub fn initialize() {
+pub fn create() -> (Waiter, Returner, Sleeper) {
     let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
     let (let_sleep_return_tx, let_sleep_return_rx) = async_channel::bounded(1);
 
-    let channels = Channels {
-        sleep_called_tx: Mutex::new(sleep_called_tx),
+    let waiter = Waiter {
         sleep_called_rx: Mutex::new(sleep_called_rx),
+    };
+
+    let returner = Returner {
         let_sleep_return_tx: Mutex::new(let_sleep_return_tx),
+    };
+
+    let sleeper = Sleeper {
+        sleep_called_tx: Mutex::new(sleep_called_tx),
         let_sleep_return_rx: Mutex::new(let_sleep_return_rx),
     };
 
-    unsafe { CHANNELS = Some(channels) }
+    (waiter, returner, sleeper)
 }
 
-unsafe fn get_channels() -> &'static Channels {
-    CHANNELS.as_ref().expect("CHANNELS was None")
-}
-
-pub fn wait_for_sleep_called() {
-    block_on(async {
-        unsafe {
-            let sleep_called_rx = get_channels().sleep_called_rx.lock().await;
+impl Waiter {
+    pub fn wait_for_sleep_called(self) {
+        block_on(async {
+            let sleep_called_rx = self.sleep_called_rx.lock().await;
             let recv_sleep_called = sleep_called_rx.recv();
 
             let duration = Duration::from_millis(10);
@@ -58,15 +64,14 @@ pub fn wait_for_sleep_called() {
             let recv_result =
                 timeout_result.expect(WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG);
             recv_result.expect("Error receiving from sleep_called_rx");
-        }
-    });
+        });
+    }
 }
 
-pub fn let_sleep_return() {
-    unsafe {
+impl Returner {
+    pub fn let_sleep_return(self) {
         block_on(async {
-            get_channels()
-                .let_sleep_return_tx
+            self.let_sleep_return_tx
                 .lock()
                 .await
                 .try_send(())
@@ -74,13 +79,11 @@ pub fn let_sleep_return() {
         });
     }
 }
-
 // Unit Under Test API
 
-pub async fn sleep() {
-    unsafe {
-        let send_result =
-            get_channels().sleep_called_tx.lock().await.try_send(());
+impl Sleeper {
+    pub async fn sleep(self) {
+        let send_result = self.sleep_called_tx.lock().await.try_send(());
 
         match send_result {
             Ok(_) => (),
@@ -90,8 +93,7 @@ pub async fn sleep() {
             Err(_) => panic!("send on sleep_called_tx failed"),
         }
 
-        get_channels()
-            .let_sleep_return_rx
+        self.let_sleep_return_rx
             .lock()
             .await
             .recv()
