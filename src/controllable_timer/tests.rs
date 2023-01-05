@@ -8,7 +8,6 @@ fn test_sleep_called() {
     initialize();
 
     // Act
-
     let join_handle = spawn_thread_calling_sleep();
 
     // Assert
