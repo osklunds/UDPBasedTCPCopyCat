@@ -11,8 +11,6 @@ use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use std::time::Duration;
 
-const SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG: &str =
-    "Sleep called before sleep returned";
 const WAIT_FOR_SLEEP_CALLED_TIMEOUT_MSG: &str =
     "Waiting for sleep to be called timed out";
 
@@ -83,15 +81,11 @@ impl Returner {
 
 impl Sleeper {
     pub async fn sleep(self) {
-        let send_result = self.sleep_called_tx.lock().await.try_send(());
-
-        match send_result {
-            Ok(_) => (),
-            Err(async_channel::TrySendError::Full(_)) => {
-                panic!("{}", SLEEP_CALLED_BEFORE_SLEEP_RETURNED_MSG)
-            }
-            Err(_) => panic!("send on sleep_called_tx failed"),
-        }
+        self.sleep_called_tx
+            .lock()
+            .await
+            .try_send(())
+            .expect("send on sleep_called_tx failed");
 
         self.let_sleep_return_rx
             .lock()
