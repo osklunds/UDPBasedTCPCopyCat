@@ -16,6 +16,24 @@ fn test_sleep_called() {
 }
 
 #[test]
+fn test_sleep_called_twice() {
+    // Arrange
+    let (waiter1, returner1, sleeper1) = create();
+    let (waiter2, returner2, sleeper2) = create();
+    spawn_thread_calling_sleep(sleeper1);
+
+    // Act
+    spawn_thread_calling_sleep(sleeper2);
+
+    // Assert
+    waiter2.wait_for_sleep_called();
+    waiter1.wait_for_sleep_called();
+
+    returner1.let_sleep_return();
+    returner2.let_sleep_return();
+}
+
+#[test]
 fn test_sleep_not_called() {
     // Arrange
     let (waiter, _returner, _sleeper) = create();
