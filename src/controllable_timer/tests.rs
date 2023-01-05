@@ -41,7 +41,7 @@ fn test_sleep_called_twice() {
     let error = catch_panic(|| block_on_sleep());
 
     // Assert
-    assert!(error.starts_with("Error sending on SLEEP_CALLED_TX: Full"));
+    assert!(error.starts_with("Error sending on sleep_called_tx: Full"));
 }
 
 fn spawn_thread_calling_sleep() -> thread::JoinHandle<()> {

@@ -10,10 +10,14 @@ use async_std::future;
 use futures::executor::block_on;
 use std::time::Duration;
 
-static mut SLEEP_CALLED_TX: Option<Sender<()>> = None;
-static mut SLEEP_CALLED_RX: Option<Receiver<()>> = None;
-static mut LET_SLEEP_RETURN_TX: Option<Sender<()>> = None;
-static mut LET_SLEEP_RETURN_RX: Option<Receiver<()>> = None;
+struct Channels {
+    sleep_called_tx: Sender<()>,
+    sleep_called_rx: Receiver<()>,
+    let_sleep_return_tx: Sender<()>,
+    let_sleep_return_rx: Receiver<()>,
+}
+
+static mut CHANNELS: Option<Channels> = None;
 
 // Test Case API
 
@@ -21,38 +25,40 @@ pub fn initialize() {
     let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
     let (let_sleep_return_tx, let_sleep_return_rx) = async_channel::bounded(1);
 
-    unsafe {
-        SLEEP_CALLED_TX = Some(sleep_called_tx);
-        SLEEP_CALLED_RX = Some(sleep_called_rx);
-        LET_SLEEP_RETURN_TX = Some(let_sleep_return_tx);
-        LET_SLEEP_RETURN_RX = Some(let_sleep_return_rx);
-    }
+    let channels = Channels {
+        sleep_called_tx,
+        sleep_called_rx,
+        let_sleep_return_tx,
+        let_sleep_return_rx,
+    };
+
+    unsafe { CHANNELS = Some(channels) }
+}
+
+unsafe fn get_channels() -> &'static Channels {
+    CHANNELS.as_ref().expect("CHANNELS was None")
 }
 
 pub fn wait_for_sleep_called() {
     block_on(async {
         unsafe {
-            let recv_sleep_called = SLEEP_CALLED_RX
-                .as_ref()
-                .expect("SLEEP_CALLED_RX was None")
-                .recv();
+            let recv_sleep_called = get_channels().sleep_called_rx.recv();
             let duration = Duration::from_millis(10);
             let timeout_result =
                 future::timeout(duration, recv_sleep_called).await;
             let recv_result =
                 timeout_result.expect("Timeout waiting for sleep to be called");
-            recv_result.expect("Error receiving from SLEEP_CALLED_RX");
+            recv_result.expect("Error receiving from sleep_called_rx");
         }
     });
 }
 
 pub fn let_sleep_return() {
     unsafe {
-        LET_SLEEP_RETURN_TX
-            .as_ref()
-            .expect("LET_SLEEP_RETURN_TX was None")
+        get_channels()
+            .let_sleep_return_tx
             .try_send(())
-            .expect("Error sending on LET_SLEEP_RETURN_TX");
+            .expect("Error sending on let_sleep_return_tx");
     }
 }
 
@@ -60,17 +66,15 @@ pub fn let_sleep_return() {
 
 pub async fn sleep() {
     unsafe {
-        SLEEP_CALLED_TX
-            .as_ref()
-            .expect("SLEEP_CALLED_TX was None")
+        get_channels()
+            .sleep_called_tx
             .try_send(())
-            .expect("Error sending on SLEEP_CALLED_TX");
+            .expect("Error sending on sleep_called_tx");
 
-        LET_SLEEP_RETURN_RX
-            .as_ref()
-            .expect("LET_SLEEP_RETURN_RX was None")
+        get_channels()
+            .let_sleep_return_rx
             .recv()
             .await
-            .expect("Error receiving on LET_SLEEP_RETURN_RX")
+            .expect("Error receiving on let_sleep_return_rx")
     }
 }
