@@ -30,31 +30,20 @@ pub fn initialize() {
 }
 
 pub fn wait_for_sleep_called() {
-    assert!(
-        wait_for_sleep_called_no_panic(),
-        "Timeout waiting for sleep to be called"
-    );
-}
-
-fn wait_for_sleep_called_no_panic() -> bool {
-    let timeout_result = block_on(async {
+    block_on(async {
         unsafe {
             let recv_sleep_called = SLEEP_CALLED_RX
                 .as_ref()
                 .expect("SLEEP_CALLED_RX was None")
                 .recv();
             let duration = Duration::from_millis(10);
-            future::timeout(duration, recv_sleep_called).await
+            let timeout_result =
+                future::timeout(duration, recv_sleep_called).await;
+            let recv_result =
+                timeout_result.expect("Timeout waiting for sleep to be called");
+            recv_result.expect("Error receiving from SLEEP_CALLED_RX");
         }
     });
-
-    match timeout_result {
-        Ok(recv_result) => {
-            recv_result.expect("Error receiving from SLEEP_CALLED_RX");
-            true
-        }
-        Err(_) => false,
-    }
 }
 
 pub fn let_sleep_return() {
