@@ -9,7 +9,7 @@ fn test_sleep_called() {
 
     // Act
 
-    let join_handle = thread::spawn(|| block_on(async { sleep().await }));
+    let join_handle = spawn_thread_calling_sleep();
 
     // Assert
     wait_for_sleep_called();
@@ -34,14 +34,22 @@ fn test_sleep_called_twice() {
     // Arrange
     initialize();
 
-    thread::spawn(|| block_on(async { sleep().await }));
+    spawn_thread_calling_sleep();
     thread::sleep(Duration::from_millis(1));
 
     // Act
-    let error = catch_panic(|| block_on(async { sleep().await }));
+    let error = catch_panic(|| block_on_sleep());
 
     // Assert
     assert!(error.starts_with("Error sending on SLEEP_CALLED_TX: Full"));
+}
+
+fn spawn_thread_calling_sleep() -> thread::JoinHandle<()> {
+    thread::spawn(|| block_on_sleep())
+}
+
+fn block_on_sleep() {
+    block_on(async { sleep().await })
 }
 
 fn catch_panic(f: fn() -> ()) -> String {
