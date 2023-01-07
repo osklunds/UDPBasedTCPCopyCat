@@ -3,6 +3,7 @@ mod tests;
 
 use async_channel::{Receiver, Sender};
 use async_std::net::*;
+use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
@@ -14,6 +15,11 @@ use std::time::Duration;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
+
+#[async_trait]
+trait Timer {
+    async fn sleep(&self);
+}
 
 pub struct Listener {
     udp_socket: Arc<UdpSocket>,
