@@ -95,6 +95,8 @@ impl MockTimer {
         let mut locked_returner = self.returner.try_lock().unwrap();
         let mut locked_sleeper = self.sleeper.try_lock().unwrap();
 
+        assert!(locked_waiter.is_none());
+
         *locked_waiter = Some(waiter);
         *locked_returner = Some(returner);
         *locked_sleeper = Some(sleeper);
@@ -102,15 +104,19 @@ impl MockTimer {
 
     pub fn check(&self) {
         let mut locked_waiter = self.waiter.try_lock().unwrap();
-        let waiter = locked_waiter.take().unwrap();
+        let waiter = locked_waiter.take().expect("waiter was None when check() was called. expect() must be called first.");
         waiter.wait_for_sleep_called();
+
+        // TODO: Use async an and lock instead of try_lock
+        // let locked_sleeper = self.sleeper.try_lock().unwrap();
+        // assert!(locked_sleeper.is_none());
     }
 
     pub fn trigger_and_expect(&self) {
         let mut locked_waiter = self.waiter.try_lock().unwrap();
         let mut locked_returner = self.returner.try_lock().unwrap();
 
-        let returner = locked_returner.take().unwrap();
+        let returner = locked_returner.take().expect("returner was None when trigger_and_expect() was called. expect() must be called first.");
         returner.let_sleep_return();
 
         // TODO: use async block on instead
@@ -119,6 +125,9 @@ impl MockTimer {
 
         let (waiter, returner, sleeper) = controllable_timer::create();
 
+        assert!(locked_waiter.is_none());
+        assert!(locked_returner.is_none());
+        assert!(locked_sleeper.is_none());
         *locked_waiter = Some(waiter);
         *locked_returner = Some(returner);
         *locked_sleeper = Some(sleeper);
@@ -131,7 +140,7 @@ impl Timer for MockTimer {
         assert_eq!(Duration::from_millis(100), duration);
 
         let mut locked_sleeper = self.sleeper.lock().await;
-        let sleeper = locked_sleeper.take().unwrap();
+        let sleeper = locked_sleeper.take().expect("sleeper was None when sleep() was called. expect() must be called first.");
         sleeper.sleep().await;
     }
 }
