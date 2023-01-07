@@ -18,7 +18,22 @@ use crate::segment::Segment;
 
 #[async_trait]
 trait Timer {
-    async fn sleep(&self);
+    async fn sleep(&self, forever: bool);
+}
+
+struct PlainTimer {}
+
+#[async_trait]
+impl Timer for PlainTimer {
+    async fn sleep(&self, forever: bool) {
+        if forever {
+            loop {
+                async_std::task::sleep(Duration::from_millis(100)).await;
+            }
+        } else {
+            async_std::task::sleep(Duration::from_millis(100)).await;
+        }
+    }
 }
 
 pub struct Listener {
@@ -89,6 +104,14 @@ impl Listener {
 
 impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
+        let timer = PlainTimer {};
+        Self::connect_custom_timer(timer, peer_addr)
+    }
+
+    fn connect_custom_timer<T: Timer + Send + 'static, A: ToSocketAddrs>(
+        timer: T,
+        peer_addr: A,
+    ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
         let (read_tx, read_rx) = async_channel::unbounded();
@@ -101,7 +124,9 @@ impl Stream {
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        block_on(Self::client(udp_socket, read_tx, write_rx))
+                        block_on(Self::client(
+                            timer, udp_socket, read_tx, write_rx,
+                        ))
                     })
                     .unwrap();
 
@@ -114,7 +139,8 @@ impl Stream {
         }
     }
 
-    async fn client(
+    async fn client<T: Timer>(
+        timer: T,
         udp_socket: UdpSocket,
         read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<Vec<u8>>,
@@ -128,7 +154,7 @@ impl Stream {
             buffer: Vec::new(),
         };
 
-        connected_loop(state, udp_socket, read_tx, write_rx).await;
+        connected_loop(timer, state, udp_socket, read_tx, write_rx).await;
     }
 
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
@@ -240,7 +266,8 @@ impl ServerStream {
     }
 }
 
-async fn connected_loop(
+async fn connected_loop<T: Timer>(
+    timer: T,
     connected_state: ConnectedState,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
@@ -262,7 +289,7 @@ async fn connected_loop(
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
     let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
-    let future_timeout = timeout(true).fuse();
+    let future_timeout = timer.sleep(true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
     // if the timeout future so be cleared or not. recv_write_rx returns
     // Option<Future> which replaces the old timeout future.
@@ -281,11 +308,11 @@ async fn connected_loop(
 
                     // TODO: enum with Restart and Cancel
                     if restart_timer {
-                        future_timeout.set(timeout(false).fuse());
+                        future_timeout.set(timer.sleep(false).fuse());
                         timer_running = true;
                     } else {
                         // TODO: Remove/cancel instead
-                        future_timeout.set(timeout(true).fuse());
+                        future_timeout.set(timer.sleep(true).fuse());
                         timer_running = false;
                     }
                 } else {
@@ -303,7 +330,7 @@ async fn connected_loop(
                     // let buffer = &locked_connected_state.buffer;
                     // assert_eq!(timer_running, buffer.len() > 0);
                     if !timer_running && start_timer {
-                        future_timeout.set(timeout(false).fuse());
+                        future_timeout.set(timer.sleep(false).fuse());
                         timer_running = true;
                     }
                 } else {
@@ -319,19 +346,9 @@ async fn connected_loop(
                     send_segment(&udp_socket, udp_socket.peer_addr().unwrap(), &segment).await;
                 }
 
-                future_timeout.set(timeout(false).fuse());
+                future_timeout.set(timer.sleep(false).fuse());
             }
         };
-    }
-}
-
-async fn timeout(forever: bool) {
-    if forever {
-        loop {
-            async_std::task::sleep(Duration::from_millis(100)).await;
-        }
-    } else {
-        async_std::task::sleep(Duration::from_millis(100)).await;
     }
 }
 
