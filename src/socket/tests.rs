@@ -71,6 +71,15 @@ struct State {
     uut_seq_num: u32,
 }
 
+struct MockTimer {}
+
+#[async_trait]
+impl Timer for MockTimer {
+    async fn sleep(&self, forever: bool) {
+        (PlainTimer {}).sleep(forever).await
+    }
+}
+
 #[test]
 fn test_connect() {
     setup_connected_uut_client();
@@ -89,7 +98,8 @@ fn setup_connected_uut_client() -> State {
 fn uut_connect(tc_socket: UdpSocket) -> State {
     // Connect
     let tc_addr = tc_socket.local_addr().unwrap();
-    let uut_stream = Stream::connect(&tc_addr).unwrap();
+    let uut_stream =
+        Stream::connect_custom_timer(MockTimer {}, tc_addr).unwrap();
 
     // Receive SYN
     let (syn, uut_addr) = recv_segment_from(&tc_socket);
