@@ -75,8 +75,8 @@ struct MockTimer {}
 
 #[async_trait]
 impl Timer for MockTimer {
-    async fn sleep(&self, forever: bool) {
-        (PlainTimer {}).sleep(forever).await
+    async fn sleep(&self, duration: Duration) {
+        (PlainTimer {}).sleep(duration).await
     }
 }
 

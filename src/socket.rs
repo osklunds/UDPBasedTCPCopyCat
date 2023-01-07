@@ -18,21 +18,15 @@ use crate::segment::Segment;
 
 #[async_trait]
 trait Timer {
-    async fn sleep(&self, forever: bool);
+    async fn sleep(&self, duration: Duration);
 }
 
 struct PlainTimer {}
 
 #[async_trait]
 impl Timer for PlainTimer {
-    async fn sleep(&self, forever: bool) {
-        if forever {
-            loop {
-                async_std::task::sleep(Duration::from_millis(100)).await;
-            }
-        } else {
-            async_std::task::sleep(Duration::from_millis(100)).await;
-        }
+    async fn sleep(&self, duration: Duration) {
+        async_std::task::sleep(duration).await;
     }
 }
 
@@ -289,7 +283,7 @@ async fn connected_loop<T: Timer>(
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
     let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
-    let future_timeout = timer.sleep(true).fuse();
+    let future_timeout = timeout(&timer, true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
     // if the timeout future so be cleared or not. recv_write_rx returns
     // Option<Future> which replaces the old timeout future.
@@ -308,11 +302,11 @@ async fn connected_loop<T: Timer>(
 
                     // TODO: enum with Restart and Cancel
                     if restart_timer {
-                        future_timeout.set(timer.sleep(false).fuse());
+                        future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
                     } else {
                         // TODO: Remove/cancel instead
-                        future_timeout.set(timer.sleep(true).fuse());
+                        future_timeout.set(timeout(&timer, true).fuse());
                         timer_running = false;
                     }
                 } else {
@@ -330,7 +324,7 @@ async fn connected_loop<T: Timer>(
                     // let buffer = &locked_connected_state.buffer;
                     // assert_eq!(timer_running, buffer.len() > 0);
                     if !timer_running && start_timer {
-                        future_timeout.set(timer.sleep(false).fuse());
+                        future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
                     }
                 } else {
@@ -346,9 +340,17 @@ async fn connected_loop<T: Timer>(
                     send_segment(&udp_socket, udp_socket.peer_addr().unwrap(), &segment).await;
                 }
 
-                future_timeout.set(timer.sleep(false).fuse());
+                future_timeout.set(timeout(&timer, false).fuse());
             }
         };
+    }
+}
+
+async fn timeout<T: Timer>(timer: &T, forever: bool) {
+    if forever {
+        async_std::task::sleep(Duration::from_secs(1000000000)).await;
+    } else {
+        timer.sleep(Duration::from_millis(100)).await;
     }
 }
 
