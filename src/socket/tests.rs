@@ -395,17 +395,19 @@ fn test_client_write_retransmit_due_to_old_ack() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data1 from uut
-    let data1 = "first data".as_bytes();
+    state.timer.expect();
+    let data1 = b"first data";
     let len1 = uut_write(&mut state, data1);
+    state.timer.check();
 
     // Recv data1 from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
     let exp_seg1 =
-        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data1);
     assert_eq!(exp_seg1, recv_seg1);
 
     // Send data2 from uut
-    let data2 = "second data".as_bytes();
+    let data2 = b"second data";
     let len2 = uut_write(&mut state, data2);
 
     // Recv data2 from the tc
@@ -414,7 +416,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
         Ack,
         state.uut_seq_num + len1 as u32,
         state.tc_seq_num,
-        &data2,
+        data2,
     );
     assert_eq!(exp_seg2, recv_seg2);
 
