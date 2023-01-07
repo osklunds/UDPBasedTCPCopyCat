@@ -4,6 +4,7 @@ use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
 use std::time::Duration;
 
+use crate::controllable_timer::{self, Returner, Sleeper, Waiter};
 use crate::segment::Segment;
 
 // #[test]
@@ -72,12 +73,50 @@ struct State {
     timer: Arc<MockTimer>,
 }
 
-struct MockTimer {}
+struct MockTimer {
+    waiter: Mutex<Option<Waiter>>,
+    returner: Mutex<Option<Returner>>,
+    sleeper: Mutex<Option<Sleeper>>,
+}
+
+impl MockTimer {
+    pub fn new() -> Self {
+        MockTimer {
+            waiter: Mutex::new(None),
+            returner: Mutex::new(None),
+            sleeper: Mutex::new(None),
+        }
+    }
+
+    pub fn expect(&self) {
+        let (waiter, returner, sleeper) = controllable_timer::create();
+
+        let mut locked_waiter = self.waiter.try_lock().unwrap();
+        let mut locked_returner = self.returner.try_lock().unwrap();
+        let mut locked_sleeper = self.sleeper.try_lock().unwrap();
+
+        *locked_waiter = Some(waiter);
+        *locked_returner = Some(returner);
+        *locked_sleeper = Some(sleeper);
+    }
+
+    pub fn check(&self) {
+        let mut locked_waiter = self.waiter.try_lock().unwrap();
+        let waiter = locked_waiter.take().unwrap();
+        waiter.wait_for_sleep_called();
+    }
+
+    pub fn trigger_and_expect() {}
+}
 
 #[async_trait]
 impl Timer for MockTimer {
     async fn sleep(&self, duration: Duration) {
-        (PlainTimer {}).sleep(duration).await
+        assert_eq!(Duration::from_millis(100), duration);
+
+        let mut locked_sleeper = self.sleeper.lock().await;
+        let sleeper = locked_sleeper.take().unwrap();
+        sleeper.sleep().await;
     }
 }
 
@@ -98,7 +137,7 @@ fn setup_connected_uut_client() -> State {
 
 fn uut_connect(tc_socket: UdpSocket) -> State {
     // Connect
-    let timer = Arc::new(MockTimer {});
+    let timer = Arc::new(MockTimer::new());
     let tc_addr = tc_socket.local_addr().unwrap();
     let uut_stream =
         Stream::connect_custom_timer(Arc::clone(&timer), tc_addr).unwrap();
@@ -181,9 +220,11 @@ fn uut_complete_write(state: &mut State, string: &str) {
     let data = string.as_bytes();
 
     // Send from the uut
+    state.timer.expect();
     let written_len = state.uut_stream.write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
+    state.timer.check();
 
     // Recv from the tc
     let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
