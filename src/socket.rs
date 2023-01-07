@@ -7,7 +7,6 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
-use mockall::automock;
 use std::io::Result;
 use std::str;
 use std::sync::Arc;
@@ -17,7 +16,6 @@ use std::time::Duration;
 use crate::segment::Kind::*;
 use crate::segment::Segment;
 
-#[automock]
 #[async_trait]
 trait Timer {
     async fn sleep(&self, forever: bool);
