@@ -189,7 +189,7 @@ fn uut_complete_read(state: &mut State, string: &str) {
     assert_eq!(exp_ack, recv_seg);
 
     // Check that the uut received the correct data
-    let read_data = uut_complete_read_stream(&mut state.uut_stream);
+    let read_data = uut_read_stream_once(&mut state.uut_stream);
     assert_eq!(data, read_data);
 }
 
@@ -466,7 +466,7 @@ fn send_segment(
 }
 
 // Possibly "complete" should be renamed "main flow"
-fn uut_complete_read_stream(stream: &mut Stream) -> Vec<u8> {
+fn uut_read_stream_once(stream: &mut Stream) -> Vec<u8> {
     let mut buf = [0; 4096];
     let amt = stream.read(&mut buf).unwrap();
     buf[0..amt].to_vec()
