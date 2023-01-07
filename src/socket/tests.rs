@@ -69,6 +69,7 @@ struct State {
     uut_addr: SocketAddr,
     tc_seq_num: u32,
     uut_seq_num: u32,
+    timer: Arc<MockTimer>,
 }
 
 struct MockTimer {}
@@ -97,9 +98,10 @@ fn setup_connected_uut_client() -> State {
 
 fn uut_connect(tc_socket: UdpSocket) -> State {
     // Connect
+    let timer = Arc::new(MockTimer {});
     let tc_addr = tc_socket.local_addr().unwrap();
     let uut_stream =
-        Stream::connect_custom_timer(MockTimer {}, tc_addr).unwrap();
+        Stream::connect_custom_timer(Arc::clone(&timer), tc_addr).unwrap();
 
     // Receive SYN
     let (syn, uut_addr) = recv_segment_from(&tc_socket);
@@ -123,6 +125,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
         uut_addr,
         tc_seq_num,
         uut_seq_num,
+        timer,
     }
 }
 

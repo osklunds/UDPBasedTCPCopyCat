@@ -98,12 +98,16 @@ impl Listener {
 
 impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
-        let timer = PlainTimer {};
+        // TODO: See if Arc can be removed in non-test code
+        let timer = Arc::new(PlainTimer {});
         Self::connect_custom_timer(timer, peer_addr)
     }
 
-    fn connect_custom_timer<T: Timer + Send + 'static, A: ToSocketAddrs>(
-        timer: T,
+    fn connect_custom_timer<
+        T: Timer + Send + Sync + 'static,
+        A: ToSocketAddrs,
+    >(
+        timer: Arc<T>,
         peer_addr: A,
     ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
@@ -134,7 +138,7 @@ impl Stream {
     }
 
     async fn client<T: Timer>(
-        timer: T,
+        timer: Arc<T>,
         udp_socket: UdpSocket,
         read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<Vec<u8>>,
@@ -261,7 +265,7 @@ impl ServerStream {
 }
 
 async fn connected_loop<T: Timer>(
-    timer: T,
+    timer: Arc<T>,
     connected_state: ConnectedState,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
@@ -346,7 +350,7 @@ async fn connected_loop<T: Timer>(
     }
 }
 
-async fn timeout<T: Timer>(timer: &T, forever: bool) {
+async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
     if forever {
         async_std::task::sleep(Duration::from_secs(1000000000)).await;
     } else {
