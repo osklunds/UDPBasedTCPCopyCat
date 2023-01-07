@@ -324,8 +324,12 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
+    state.timer.expect();
     let data1 = "some data".as_bytes();
     let len1 = uut_write(&mut state, data1);
+    state.timer.check();
+
+    // Note that the timer was only started for the first write
     let data2 = "some other data".as_bytes();
     let len2 = uut_write(&mut state, data2);
     let data3 = "some more data".as_bytes();
@@ -352,8 +356,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     assert_eq!(exp_seg3, recv_seg3);
 
     // tc pretends it didn't get data by not sending an ACK
-    // Sleep and then get retransmissions
-    thread::sleep(Duration::from_millis(150));
+    state.timer.trigger_and_expect();
 
     let recv_seg1_retrans = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg1, recv_seg1_retrans);
@@ -378,6 +381,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     send_segment(&state.tc_socket, state.uut_addr, &ack2);
     send_segment(&state.tc_socket, state.uut_addr, &ack3);
 
+    // TODO: Check timer and remove sleep
     thread::sleep(Duration::from_millis(150));
     recv_check_no_data(&state.tc_socket);
 }
