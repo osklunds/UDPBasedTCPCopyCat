@@ -213,18 +213,12 @@ fn test_client_read_multiple_times() {
 fn test_client_write_once() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_write(&mut state, "some data");
+    uut_complete_write(&mut state, b"some data");
 }
 
-fn uut_complete_write(state: &mut State, string: &str) {
-    let data = string.as_bytes();
-
+fn uut_complete_write(state: &mut State, data: &[u8]) {
     // Send from the uut
-    state.timer.expect();
-    let written_len = state.uut_stream.write(&data).unwrap();
-    let len = data.len();
-    assert_eq!(len, written_len);
-    state.timer.check();
+    let len = uut_write(state, data);
 
     // Recv from the tc
     let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
@@ -243,16 +237,16 @@ fn uut_complete_write(state: &mut State, string: &str) {
 fn test_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_write(&mut state, "first agfs");
-    uut_complete_write(&mut state, "second gfdhdgfh");
-    uut_complete_write(&mut state, "third dfafsdfads");
-    uut_complete_write(&mut state, "fourth dfafas");
-    uut_complete_write(&mut state, "fifth dfasfasfsdaf");
-    uut_complete_write(&mut state, "sixth thythrt");
-    uut_complete_write(&mut state, "seventh fdsaref");
-    uut_complete_write(&mut state, "eighth dagfsdrgrege");
-    uut_complete_write(&mut state, "ninth asfaerger");
-    uut_complete_write(&mut state, "tenth trehjk");
+    uut_complete_write(&mut state, b"first agfs");
+    uut_complete_write(&mut state, b"second gfdhdgfh");
+    uut_complete_write(&mut state, b"third dfafsdfads");
+    uut_complete_write(&mut state, b"fourth dfafas");
+    uut_complete_write(&mut state, b"fifth dfasfasfsdaf");
+    uut_complete_write(&mut state, b"sixth thythrt");
+    uut_complete_write(&mut state, b"seventh fdsaref");
+    uut_complete_write(&mut state, b"eighth dagfsdrgrege");
+    uut_complete_write(&mut state, b"ninth asfaerger");
+    uut_complete_write(&mut state, b"tenth trehjk");
 }
 
 #[test]
@@ -260,12 +254,12 @@ fn test_client_reads_and_writes() {
     let mut state = setup_connected_uut_client();
 
     uut_complete_read(&mut state, "first");
-    uut_complete_write(&mut state, "second");
-    uut_complete_write(&mut state, "third");
-    uut_complete_write(&mut state, "fourth");
+    uut_complete_write(&mut state, b"second");
+    uut_complete_write(&mut state, b"third");
+    uut_complete_write(&mut state, b"fourth");
     uut_complete_read(&mut state, "fifth");
     uut_complete_read(&mut state, "sixth");
-    uut_complete_write(&mut state, "seventh");
+    uut_complete_write(&mut state, b"seventh");
 }
 
 #[test]
@@ -274,11 +268,11 @@ fn test_client_write_retransmit_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, "some initial data");
+    uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
     let data = "some data".as_bytes();
-    let len = uut_write(&mut state.uut_stream, data);
+    let len = uut_write(&mut state, data);
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -307,15 +301,15 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, "some initial data");
+    uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
     let data1 = "some data".as_bytes();
-    let len1 = uut_write(&mut state.uut_stream, data1);
+    let len1 = uut_write(&mut state, data1);
     let data2 = "some other data".as_bytes();
-    let len2 = uut_write(&mut state.uut_stream, data2);
+    let len2 = uut_write(&mut state, data2);
     let data3 = "some more data".as_bytes();
-    let len3 = uut_write(&mut state.uut_stream, data3);
+    let len3 = uut_write(&mut state, data3);
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -374,11 +368,11 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, "some initial data");
+    uut_complete_write(&mut state, b"some initial data");
 
     // Send data1 from uut
     let data1 = "first data".as_bytes();
-    let len1 = uut_write(&mut state.uut_stream, data1);
+    let len1 = uut_write(&mut state, data1);
 
     // Recv data1 from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -388,7 +382,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Send data2 from uut
     let data2 = "second data".as_bytes();
-    let len2 = uut_write(&mut state.uut_stream, data2);
+    let len2 = uut_write(&mut state, data2);
 
     // Recv data2 from the tc
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -427,10 +421,12 @@ fn test_client_write_retransmit_due_to_old_ack() {
     recv_check_no_data(&state.tc_socket);
 }
 
-fn uut_write(uut_stream: &mut Stream, data: &[u8]) -> u32 {
-    let written_len = uut_stream.write(data).unwrap();
+fn uut_write(state: &mut State, data: &[u8]) -> u32 {
+    state.timer.expect();
+    let written_len = state.uut_stream.write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
+    state.timer.check();
     len as u32
 }
 
