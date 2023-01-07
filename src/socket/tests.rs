@@ -106,7 +106,23 @@ impl MockTimer {
         waiter.wait_for_sleep_called();
     }
 
-    pub fn trigger_and_expect() {}
+    pub fn trigger_and_expect(&self) {
+        let mut locked_waiter = self.waiter.try_lock().unwrap();
+        let mut locked_returner = self.returner.try_lock().unwrap();
+
+        let returner = locked_returner.take().unwrap();
+        returner.let_sleep_return();
+
+        // TODO: use async block on instead
+        thread::sleep(Duration::from_millis(10));
+        let mut locked_sleeper = self.sleeper.try_lock().unwrap();
+
+        let (waiter, returner, sleeper) = controllable_timer::create();
+
+        *locked_waiter = Some(waiter);
+        *locked_returner = Some(returner);
+        *locked_sleeper = Some(sleeper);
+    }
 }
 
 #[async_trait]
@@ -218,7 +234,9 @@ fn test_client_write_once() {
 
 fn uut_complete_write(state: &mut State, data: &[u8]) {
     // Send from the uut
+    state.timer.expect();
     let len = uut_write(state, data);
+    state.timer.check();
 
     // Recv from the tc
     let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
@@ -271,25 +289,27 @@ fn test_client_write_retransmit_due_to_timeout() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
-    let data = "some data".as_bytes();
+    state.timer.expect();
+    let data = b"some data";
     let len = uut_write(&mut state, data);
+    state.timer.check();
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
+    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data);
     assert_eq!(exp_seg, recv_seg1);
 
     // tc pretends it didn't get data by not sending an ACK
-    // Sleep and then get a retransmission
-    thread::sleep(Duration::from_millis(150));
+    state.timer.trigger_and_expect();
 
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg, recv_seg2);
-
+    // TODO: Check timer
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
     send_segment(&state.tc_socket, state.uut_addr, &ack);
 
+    // TODO: Remove this sleep
     thread::sleep(Duration::from_millis(150));
     recv_check_no_data(&state.tc_socket);
 }
@@ -421,12 +441,11 @@ fn test_client_write_retransmit_due_to_old_ack() {
     recv_check_no_data(&state.tc_socket);
 }
 
+// TODO: Only stream, not state, as argument
 fn uut_write(state: &mut State, data: &[u8]) -> u32 {
-    state.timer.expect();
     let written_len = state.uut_stream.write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
-    state.timer.check();
     len as u32
 }
 
