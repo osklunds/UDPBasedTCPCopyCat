@@ -66,10 +66,19 @@ impl MockTimer {
     // TODO: Move to drop when the Socket process is closed/FIN-ed
     pub fn test_end_check(&self) {
         block_on(async {
+            // First check that the TC hasn't expected any sleep that hasn't
+            // been executed yet
             let locked_sleep_expected = self.sleep_expected.lock().await;
             assert!(!*locked_sleep_expected);
 
+            // Then check that no sleep has been made that the TC hasn't
+            // waited for
             assert!(self.sleep_called_rx.is_empty());
+
+            // Finally let the sleep return so that a retransmission of
+            // everything in the buffer is done, so that non empty
+            // buffer is detected.
+            self.let_sleep_return_tx.try_send(()).unwrap();
         });
     }
 }

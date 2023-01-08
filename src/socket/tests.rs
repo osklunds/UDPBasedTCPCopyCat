@@ -426,6 +426,20 @@ fn test_multi_segment_write() {
     send_segment(&state, &ack);
 }
 
+#[test]
+fn test_same_segment_carries_data_and_acks() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data from uut
+    state.timer.expect_call_to_sleep();
+    let data_from_uut = b"some data";
+    uut_write(&mut state, data_from_uut);
+    state.timer.wait_for_call_to_sleep();
+
+    // Then send some data from tc, without first sending a separate ACK
+    main_flow_uut_read(&mut state, b"some other data");
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
