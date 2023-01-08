@@ -337,7 +337,6 @@ async fn connected_loop<T: Timer>(
             },
 
             _ = future_timeout => {
-                println!("timeout triggered");
                 let locked_connected_state = connected_state_in_arc.lock().await;
 
                 for segment in &locked_connected_state.buffer {

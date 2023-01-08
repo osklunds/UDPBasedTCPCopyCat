@@ -73,6 +73,13 @@ struct State {
     timer: Arc<MockTimer>,
 }
 
+impl Drop for State {
+    fn drop(&mut self) {
+        self.timer.test_end_check();
+        recv_check_no_data(&mut self.tc_socket);
+    }
+}
+
 struct MockTimer {
     sleep_expected: Mutex<bool>,
     sleep_called_tx: Sender<()>,
@@ -127,6 +134,16 @@ impl MockTimer {
             self.let_sleep_return_tx.try_send(()).unwrap();
         });
     }
+
+    // TODO: Move to drop when the Socket process is closed/FIN-ed
+    pub fn test_end_check(&self) {
+        block_on(async {
+            let locked_sleep_expected = self.sleep_expected.lock().await;
+            assert!(!*locked_sleep_expected);
+
+            assert!(self.sleep_called_rx.is_empty());
+        });
+    }
 }
 
 #[async_trait]
@@ -153,7 +170,7 @@ fn setup_connected_uut_client() -> State {
     let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let tc_socket = UdpSocket::bind(tc_addr).unwrap();
     tc_socket
-        .set_read_timeout(Some(Duration::from_millis(50)))
+        .set_read_timeout(Some(Duration::from_millis(5)))
         .unwrap();
 
     uut_connect(tc_socket)
@@ -318,10 +335,6 @@ fn test_client_write_retransmit_due_to_timeout() {
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
     send_segment(&state.tc_socket, state.uut_addr, &ack);
-
-    // TODO: Remove this sleep
-    thread::sleep(Duration::from_millis(150));
-    recv_check_no_data(&state.tc_socket);
 }
 // TODO: test that timer isn't restarted when something new is sent
 // TODO: test that timer is restarted when one ack is received
@@ -392,10 +405,6 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     send_segment(&state.tc_socket, state.uut_addr, &ack1);
     send_segment(&state.tc_socket, state.uut_addr, &ack2);
     send_segment(&state.tc_socket, state.uut_addr, &ack3);
-
-    // TODO: Check timer and remove sleep
-    thread::sleep(Duration::from_millis(150));
-    recv_check_no_data(&state.tc_socket);
 }
 
 #[test]
@@ -457,8 +466,6 @@ fn test_client_write_retransmit_due_to_old_ack() {
         state.uut_seq_num + len1 + len2,
     );
     send_segment(&state.tc_socket, state.uut_addr, &send_ack2);
-
-    recv_check_no_data(&state.tc_socket);
 }
 
 // TODO: Only stream, not state, as argument
