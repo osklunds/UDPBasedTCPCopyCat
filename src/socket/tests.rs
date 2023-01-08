@@ -1,10 +1,13 @@
 use super::*;
 
+mod mock_timer;
+
 use async_std::future;
 use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
 use std::time::Duration;
 
+use self::mock_timer::MockTimer;
 use crate::segment::Segment;
 
 // fn test() {
@@ -64,102 +67,10 @@ use crate::segment::Segment;
 // - Send two segments, ack the first, only second is retransmitted
 // - Send long data that needs two segments
 
-struct State {
-    tc_socket: UdpSocket,
-    uut_stream: Stream,
-    uut_addr: SocketAddr,
-    tc_seq_num: u32,
-    uut_seq_num: u32,
-    timer: Arc<MockTimer>,
-}
-
-impl Drop for State {
-    fn drop(&mut self) {
-        self.timer.test_end_check();
-        recv_check_no_data(&mut self.tc_socket);
-    }
-}
-
-struct MockTimer {
-    sleep_expected: Mutex<bool>,
-    sleep_called_tx: Sender<()>,
-    sleep_called_rx: Receiver<()>,
-    let_sleep_return_tx: Sender<()>,
-    let_sleep_return_rx: Receiver<()>,
-}
-
-impl MockTimer {
-    pub fn new() -> Self {
-        let sleep_expected = Mutex::new(false);
-        let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
-        let (let_sleep_return_tx, let_sleep_return_rx) =
-            async_channel::bounded(1);
-
-        MockTimer {
-            sleep_expected,
-            sleep_called_tx,
-            sleep_called_rx,
-            let_sleep_return_tx,
-            let_sleep_return_rx,
-        }
-    }
-
-    pub fn expect_call_to_sleep(&self) {
-        block_on(async {
-            let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
-            *locked_sleep_expected = true;
-        });
-    }
-
-    pub fn wait_for_call_to_sleep(&self) {
-        block_on(async {
-            let duration = Duration::from_millis(10);
-            let recv_sleep_called = self.sleep_called_rx.recv();
-            let timeout_result =
-                future::timeout(duration, recv_sleep_called).await;
-
-            let recv_result =
-                timeout_result.expect("Timeout waiting for sleep to be called");
-            recv_result.expect("Error receiving from sleep_called_rx");
-        });
-    }
-
-    pub fn trigger_and_expect_new_call(&self) {
-        block_on(async {
-            let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
-            *locked_sleep_expected = true;
-
-            self.let_sleep_return_tx.try_send(()).unwrap();
-        });
-    }
-
-    // TODO: Move to drop when the Socket process is closed/FIN-ed
-    pub fn test_end_check(&self) {
-        block_on(async {
-            let locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
-
-            assert!(self.sleep_called_rx.is_empty());
-        });
-    }
-}
-
-#[async_trait]
-impl Timer for MockTimer {
-    async fn sleep(&self, duration: Duration) {
-        assert_eq!(Duration::from_millis(100), duration);
-
-        let mut locked_sleep_expected = self.sleep_expected.lock().await;
-        assert!(*locked_sleep_expected);
-        *locked_sleep_expected = false;
-        drop(locked_sleep_expected);
-
-        self.sleep_called_tx.try_send(()).unwrap();
-        self.let_sleep_return_rx.recv().await.unwrap();
-    }
-}
+// TODO: Put Main/alternative/expcetional in separate files instead
+////////////////////////////////////////////////////////////////////////////////
+// Main flow test cases
+////////////////////////////////////////////////////////////////////////////////
 
 #[test]
 fn test_connect() {
@@ -267,6 +178,10 @@ fn test_client_reads_and_writes() {
     main_flow_uut_read(&mut state, b"sixth");
     main_flow_uut_write(&mut state, b"seventh");
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Alternative flow test cases
+////////////////////////////////////////////////////////////////////////////////
 
 #[test]
 fn test_client_write_retransmit_due_to_timeout() {
@@ -443,6 +358,22 @@ fn test_client_write_retransmit_due_to_old_ack() {
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
+
+struct State {
+    tc_socket: UdpSocket,
+    uut_stream: Stream,
+    uut_addr: SocketAddr,
+    tc_seq_num: u32,
+    uut_seq_num: u32,
+    timer: Arc<MockTimer>,
+}
+
+impl Drop for State {
+    fn drop(&mut self) {
+        self.timer.test_end_check();
+        recv_check_no_data(&mut self.tc_socket);
+    }
+}
 
 fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     // Send from the tc
