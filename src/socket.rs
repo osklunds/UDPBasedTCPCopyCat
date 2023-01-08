@@ -239,6 +239,7 @@ impl Stream {
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        assert!(buf.len() > 0);
         block_on(self.write_tx.send(buf.to_vec())).unwrap();
         Ok(buf.len())
     }
