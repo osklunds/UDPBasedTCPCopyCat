@@ -1,5 +1,6 @@
 use super::*;
 
+use async_std::future;
 use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
 use std::time::Duration;
@@ -7,7 +8,6 @@ use std::time::Duration;
 use crate::controllable_timer::{self, Returner, Sleeper, Waiter};
 use crate::segment::Segment;
 
-// #[test]
 // fn test() {
 //     let server_addr: SocketAddr = "127.0.0.1:6789".parse().unwrap();
 
@@ -74,63 +74,58 @@ struct State {
 }
 
 struct MockTimer {
-    waiter: Mutex<Option<Waiter>>,
-    returner: Mutex<Option<Returner>>,
-    sleeper: Mutex<Option<Sleeper>>,
+    sleep_expected: Mutex<bool>,
+    sleep_called_tx: Sender<()>,
+    sleep_called_rx: Receiver<()>,
+    let_sleep_return_tx: Sender<()>,
+    let_sleep_return_rx: Receiver<()>,
 }
 
 impl MockTimer {
     pub fn new() -> Self {
+        let sleep_expected = Mutex::new(false);
+        let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
+        let (let_sleep_return_tx, let_sleep_return_rx) =
+            async_channel::bounded(1);
+
         MockTimer {
-            waiter: Mutex::new(None),
-            returner: Mutex::new(None),
-            sleeper: Mutex::new(None),
+            sleep_expected,
+            sleep_called_tx,
+            sleep_called_rx,
+            let_sleep_return_tx,
+            let_sleep_return_rx,
         }
     }
 
-    pub fn expect(&self) {
-        let (waiter, returner, sleeper) = controllable_timer::create();
-
-        let mut locked_waiter = self.waiter.try_lock().unwrap();
-        let mut locked_returner = self.returner.try_lock().unwrap();
-        let mut locked_sleeper = self.sleeper.try_lock().unwrap();
-
-        assert!(locked_waiter.is_none());
-
-        *locked_waiter = Some(waiter);
-        *locked_returner = Some(returner);
-        *locked_sleeper = Some(sleeper);
+    pub fn expect_call_to_sleep(&self) {
+        block_on(async {
+            let mut locked_sleep_expected = self.sleep_expected.lock().await;
+            assert!(!*locked_sleep_expected);
+            *locked_sleep_expected = true;
+        });
     }
 
-    pub fn check(&self) {
-        let mut locked_waiter = self.waiter.try_lock().unwrap();
-        let waiter = locked_waiter.take().expect("waiter was None when check() was called. expect() must be called first.");
-        waiter.wait_for_sleep_called();
+    pub fn wait_for_call_to_sleep(&self) {
+        block_on(async {
+            let duration = Duration::from_millis(10);
+            let recv_sleep_called = self.sleep_called_rx.recv();
+            let timeout_result =
+                future::timeout(duration, recv_sleep_called).await;
 
-        // TODO: Use async an and lock instead of try_lock
-        // let locked_sleeper = self.sleeper.try_lock().unwrap();
-        // assert!(locked_sleeper.is_none());
+            let recv_result =
+                timeout_result.expect("Timeout waiting for sleep to be called");
+            recv_result.expect("Error receiving from sleep_called_rx");
+        });
     }
 
-    pub fn trigger_and_expect(&self) {
-        let mut locked_waiter = self.waiter.try_lock().unwrap();
-        let mut locked_returner = self.returner.try_lock().unwrap();
+    pub fn trigger_and_expect_new_call(&self) {
+        block_on(async {
+            let mut locked_sleep_expected = self.sleep_expected.lock().await;
+            assert!(!*locked_sleep_expected);
+            *locked_sleep_expected = true;
 
-        let returner = locked_returner.take().expect("returner was None when trigger_and_expect() was called. expect() must be called first.");
-        returner.let_sleep_return();
-
-        // TODO: use async block on instead
-        thread::sleep(Duration::from_millis(10));
-        let mut locked_sleeper = self.sleeper.try_lock().unwrap();
-
-        let (waiter, returner, sleeper) = controllable_timer::create();
-
-        assert!(locked_waiter.is_none());
-        assert!(locked_returner.is_none());
-        assert!(locked_sleeper.is_none());
-        *locked_waiter = Some(waiter);
-        *locked_returner = Some(returner);
-        *locked_sleeper = Some(sleeper);
+            self.let_sleep_return_tx.try_send(()).unwrap();
+        });
     }
 }
 
@@ -139,9 +134,13 @@ impl Timer for MockTimer {
     async fn sleep(&self, duration: Duration) {
         assert_eq!(Duration::from_millis(100), duration);
 
-        let mut locked_sleeper = self.sleeper.lock().await;
-        let sleeper = locked_sleeper.take().expect("sleeper was None when sleep() was called. expect() must be called first.");
-        sleeper.sleep().await;
+        let mut locked_sleep_expected = self.sleep_expected.lock().await;
+        assert!(*locked_sleep_expected);
+        *locked_sleep_expected = false;
+        drop(locked_sleep_expected);
+
+        self.sleep_called_tx.try_send(()).unwrap();
+        self.let_sleep_return_rx.recv().await.unwrap();
     }
 }
 
@@ -243,9 +242,9 @@ fn test_client_write_once() {
 
 fn uut_complete_write(state: &mut State, data: &[u8]) {
     // Send from the uut
-    state.timer.expect();
+    state.timer.expect_call_to_sleep();
     let len = uut_write(state, data);
-    state.timer.check();
+    state.timer.wait_for_call_to_sleep();
 
     // Recv from the tc
     let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
@@ -298,22 +297,24 @@ fn test_client_write_retransmit_due_to_timeout() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
-    state.timer.expect();
+    state.timer.expect_call_to_sleep();
     let data = b"some data";
     let len = uut_write(&mut state, data);
-    state.timer.check();
+    state.timer.wait_for_call_to_sleep();
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
     let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data);
     assert_eq!(exp_seg, recv_seg1);
 
-    // tc pretends it didn't get data by not sending an ACK
-    state.timer.trigger_and_expect();
+    // tc pretends it didn't get data by not sending an ACK. Instead,
+    // the timeout expires
+    state.timer.trigger_and_expect_new_call();
 
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg, recv_seg2);
-    // TODO: Check timer
+    state.timer.wait_for_call_to_sleep();
+
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
     send_segment(&state.tc_socket, state.uut_addr, &ack);
@@ -333,10 +334,10 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data from uut
-    state.timer.expect();
+    state.timer.expect_call_to_sleep();
     let data1 = "some data".as_bytes();
     let len1 = uut_write(&mut state, data1);
-    state.timer.check();
+    state.timer.wait_for_call_to_sleep();
 
     // Note that the timer was only started for the first write
     let data2 = "some other data".as_bytes();
@@ -364,8 +365,9 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     );
     assert_eq!(exp_seg3, recv_seg3);
 
-    // tc pretends it didn't get data by not sending an ACK
-    state.timer.trigger_and_expect();
+    // tc pretends it didn't get data by not sending an ACK. Instead,
+    // the timeout expires
+    state.timer.trigger_and_expect_new_call();
 
     let recv_seg1_retrans = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg1, recv_seg1_retrans);
@@ -404,10 +406,10 @@ fn test_client_write_retransmit_due_to_old_ack() {
     uut_complete_write(&mut state, b"some initial data");
 
     // Send data1 from uut
-    state.timer.expect();
+    state.timer.expect_call_to_sleep();
     let data1 = b"first data";
     let len1 = uut_write(&mut state, data1);
-    state.timer.check();
+    state.timer.wait_for_call_to_sleep();
 
     // Recv data1 from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -431,12 +433,14 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // tc pretends that it didn't get data1 by sending ACK (dup ack, fast
     // retransmit) for the original seq_num
+    state.timer.expect_call_to_sleep();
     let send_ack0 =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state.tc_socket, state.uut_addr, &send_ack0);
 
     // This causes uut to retransmit everything from the acked seq_num to
     // "current"
+    state.timer.wait_for_call_to_sleep();
     let recv_seg1_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg1, recv_seg1_retransmit);
     let recv_seg2_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
