@@ -383,6 +383,49 @@ fn test_cumulative_ack() {
     send_segment(&state, &ack);
 }
 
+#[test]
+fn test_multi_segment_write() {
+    let mut state = setup_connected_uut_client();
+
+    // Generate some long data to write
+    let len = MAXIMUM_SEGMENT_SIZE + 10 + rand::random::<u32>() % 100;
+    let mut data: Vec<u8> = Vec::new();
+    for _ in 0..len {
+        data.push(rand::random());
+    }
+
+    // Send from uut
+    state.timer.expect_call_to_sleep();
+    let written_len = state.uut_stream.write(&data).unwrap() as u32;
+    assert_eq!(len, written_len);
+    state.timer.wait_for_call_to_sleep();
+
+    // Receive the first segment
+    let recv_seg1 = recv_segment(&state);
+    let exp_seg1 = Segment::new(
+        Ack,
+        state.uut_seq_num,
+        state.tc_seq_num,
+        &data[0..MAXIMUM_SEGMENT_SIZE as usize],
+    );
+    assert_eq!(exp_seg1, recv_seg1);
+
+    // Receive the second segment
+    let recv_seg2 = recv_segment(&state);
+    let exp_seg2 = Segment::new(
+        Ack,
+        state.uut_seq_num + MAXIMUM_SEGMENT_SIZE,
+        state.tc_seq_num,
+        &data[MAXIMUM_SEGMENT_SIZE as usize..],
+    );
+    assert_eq!(exp_seg2, recv_seg2);
+
+    let ack =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
+
+    send_segment(&state, &ack);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////

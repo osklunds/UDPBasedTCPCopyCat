@@ -16,6 +16,9 @@ use std::time::Duration;
 use crate::segment::Kind::*;
 use crate::segment::Segment;
 
+const RETRANSMISSION_TIMER: Duration = Duration::from_millis(100);
+const MAXIMUM_SEGMENT_SIZE: u32 = 500;
+
 #[async_trait]
 trait Timer {
     async fn sleep(&self, duration: Duration);
@@ -353,7 +356,7 @@ async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
     if forever {
         async_std::task::sleep(Duration::from_secs(1000000000)).await;
     } else {
-        timer.sleep(Duration::from_millis(100)).await;
+        timer.sleep(RETRANSMISSION_TIMER).await;
     }
 }
 
@@ -474,19 +477,25 @@ async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
     match state.write_rx.recv().await {
         Ok(data) => {
             let mut locked_connected_state = state.connected_state.lock().await;
-            let seg = Segment::new(
-                Ack,
-                locked_connected_state.send_next,
-                locked_connected_state.receive_next,
-                &data,
-            );
-            locked_connected_state.send_next += data.len() as u32;
-            locked_connected_state.buffer.push(seg.clone());
-            let start_timer = locked_connected_state.buffer.len() == 1;
-            drop(locked_connected_state);
 
-            let peer_addr = state.udp_socket.peer_addr().unwrap();
-            send_segment(state.udp_socket, peer_addr, &seg).await;
+            for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
+                let seg = Segment::new(
+                    Ack,
+                    locked_connected_state.send_next,
+                    locked_connected_state.receive_next,
+                    &chunk,
+                );
+
+                let peer_addr = state.udp_socket.peer_addr().unwrap();
+                send_segment(state.udp_socket, peer_addr, &seg).await;
+
+                locked_connected_state.send_next += chunk.len() as u32;
+                locked_connected_state.buffer.push(seg);
+            }
+
+            let start_timer = locked_connected_state.buffer.len() > 0;
+
+            drop(locked_connected_state);
             RecvWriteRxResult::Continue(state, start_timer)
         }
         Err(_) => RecvWriteRxResult::Exit,

@@ -6,7 +6,7 @@ use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use crate::socket::Timer;
+use crate::socket::{Timer, RETRANSMISSION_TIMER};
 
 pub struct MockTimer {
     sleep_expected: Mutex<bool>,
@@ -77,7 +77,7 @@ impl MockTimer {
 #[async_trait]
 impl Timer for MockTimer {
     async fn sleep(&self, duration: Duration) {
-        assert_eq!(Duration::from_millis(100), duration);
+        assert_eq!(RETRANSMISSION_TIMER, duration);
 
         let mut locked_sleep_expected = self.sleep_expected.lock().await;
         assert!(*locked_sleep_expected);
