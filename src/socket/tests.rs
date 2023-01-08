@@ -182,6 +182,8 @@ fn test_client_reads_and_writes() {
 // Alternative flow test cases
 ////////////////////////////////////////////////////////////////////////////////
 
+// TODO: Idea: when all test cases need a state parameter anyway, try
+// to chain them together, running one scenario after the other
 #[test]
 fn test_client_write_retransmit_due_to_timeout() {
     let mut state = setup_connected_uut_client();
