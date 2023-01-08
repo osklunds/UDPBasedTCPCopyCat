@@ -225,25 +225,25 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
 
     // Send data from uut
     state.timer.expect_call_to_sleep();
-    let data1 = "some data".as_bytes();
+    let data1 = b"some data";
     let len1 = uut_write(&mut state.uut_stream, data1);
     state.timer.wait_for_call_to_sleep();
 
     // Note that the timer was only started for the first write
-    let data2 = "some other data".as_bytes();
+    let data2 = b"some other data";
     let len2 = uut_write(&mut state.uut_stream, data2);
-    let data3 = "some more data".as_bytes();
+    let data3 = b"some more data";
     let len3 = uut_write(&mut state.uut_stream, data3);
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state);
     let exp_seg1 =
-        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data1);
     assert_eq!(exp_seg1, recv_seg1);
 
     let recv_seg2 = recv_segment(&state);
     let exp_seg2 =
-        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
+        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, data2);
     assert_eq!(exp_seg2, recv_seg2);
 
     let recv_seg3 = recv_segment(&state);
@@ -251,7 +251,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
         Ack,
         state.uut_seq_num + len1 + len2,
         state.tc_seq_num,
-        &data3,
+        data3,
     );
     assert_eq!(exp_seg3, recv_seg3);
 
@@ -360,21 +360,21 @@ fn test_first_segment_acked_but_not_second() {
     let mut state = setup_connected_uut_client();
 
     state.timer.expect_call_to_sleep();
-    let data1 = "some data".as_bytes();
+    let data1 = b"some data";
     let len1 = uut_write(&mut state.uut_stream, data1);
     state.timer.wait_for_call_to_sleep();
 
     let recv_seg1 = recv_segment(&state);
     let exp_seg1 =
-        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data1);
     assert_eq!(exp_seg1, recv_seg1);
 
-    let data2 = "some other data".as_bytes();
+    let data2 = b"some other data";
     let len2 = uut_write(&mut state.uut_stream, data2);
 
     let recv_seg2 = recv_segment(&state);
     let exp_seg2 =
-        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
+        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, data2);
     assert_eq!(exp_seg2, recv_seg2);
 
     let ack1 =
@@ -405,21 +405,21 @@ fn test_cumulative_ack() {
     let mut state = setup_connected_uut_client();
 
     state.timer.expect_call_to_sleep();
-    let data1 = "some data".as_bytes();
+    let data1 = b"some data";
     let len1 = uut_write(&mut state.uut_stream, data1);
     state.timer.wait_for_call_to_sleep();
 
     let recv_seg1 = recv_segment(&state);
     let exp_seg1 =
-        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data1);
     assert_eq!(exp_seg1, recv_seg1);
 
-    let data2 = "some other data".as_bytes();
+    let data2 = b"some other data";
     let len2 = uut_write(&mut state.uut_stream, data2);
 
     let recv_seg2 = recv_segment(&state);
     let exp_seg2 =
-        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
+        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, data2);
     assert_eq!(exp_seg2, recv_seg2);
 
     let ack = Segment::new_empty(
