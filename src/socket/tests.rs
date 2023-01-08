@@ -213,12 +213,10 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 fn test_client_read_once() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, "some data");
+    uut_complete_read(&mut state, b"some data");
 }
 
-fn uut_complete_read(state: &mut State, string: &str) {
-    let data = string.as_bytes();
-
+fn uut_complete_read(state: &mut State, data: &[u8]) {
     // Send from the tc
     let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
     send_segment(&state.tc_socket, state.uut_addr, &send_seg);
@@ -238,16 +236,16 @@ fn uut_complete_read(state: &mut State, string: &str) {
 fn test_client_read_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, "first rweouinwrte");
-    uut_complete_read(&mut state, "second hfuiasud");
-    uut_complete_read(&mut state, "third uifdshufihsiughsyudfghkusfdf");
-    uut_complete_read(&mut state, "fourth fuidshfadgaerge");
-    uut_complete_read(&mut state, "fifth dhuifghuifdlfoiwejiow");
-    uut_complete_read(&mut state, "sixth fdauykfudsfgs");
-    uut_complete_read(&mut state, "seventh fsdhsdgfsd");
-    uut_complete_read(&mut state, "eighth ijogifdgire");
-    uut_complete_read(&mut state, "ninth ertwrw");
-    uut_complete_read(&mut state, "tenth uhfsdghsu");
+    uut_complete_read(&mut state, b"first rweouinwrte");
+    uut_complete_read(&mut state, b"second hfuiasud");
+    uut_complete_read(&mut state, b"third uifdshufihsiughsyudfghkusfdf");
+    uut_complete_read(&mut state, b"fourth fuidshfadgaerge");
+    uut_complete_read(&mut state, b"fifth dhuifghuifdlfoiwejiow");
+    uut_complete_read(&mut state, b"sixth fdauykfudsfgs");
+    uut_complete_read(&mut state, b"seventh fsdhsdgfsd");
+    uut_complete_read(&mut state, b"eighth ijogifdgire");
+    uut_complete_read(&mut state, b"ninth ertwrw");
+    uut_complete_read(&mut state, b"tenth uhfsdghsu");
 }
 
 #[test]
@@ -296,12 +294,12 @@ fn test_client_write_multiple_times() {
 fn test_client_reads_and_writes() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, "first");
+    uut_complete_read(&mut state, b"first");
     uut_complete_write(&mut state, b"second");
     uut_complete_write(&mut state, b"third");
     uut_complete_write(&mut state, b"fourth");
-    uut_complete_read(&mut state, "fifth");
-    uut_complete_read(&mut state, "sixth");
+    uut_complete_read(&mut state, b"fifth");
+    uut_complete_read(&mut state, b"sixth");
     uut_complete_write(&mut state, b"seventh");
 }
 
