@@ -377,6 +377,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     // TODO: Reject invalid segments instead
     // The segment shouldn't ack something not sent
     assert!(locked_connected_state.send_next >= segment.ack_num());
+
     // The segment should contain the next expected data
     assert_eq!(locked_connected_state.receive_next, segment.seq_num());
 
@@ -389,7 +390,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     assert_eq!(locked_connected_state.receive_next, seq_num);
     locked_connected_state.receive_next += len;
 
-    let retransmitted = handle_retransmissions_at_ack_recv(
+    let restart_timer = handle_retransmissions_at_ack_recv(
         ack_num,
         &mut locked_connected_state,
         &state,
@@ -405,12 +406,12 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     drop(locked_connected_state);
 
     if len == 0 {
-        RecvSocketResult::Continue(state, retransmitted)
+        RecvSocketResult::Continue(state, restart_timer)
     } else {
         send_segment(state.udp_socket, peer_addr, &ack).await;
 
         match state.read_tx.send(data).await {
-            Ok(()) => RecvSocketResult::Continue(state, retransmitted),
+            Ok(()) => RecvSocketResult::Continue(state, restart_timer),
             Err(_) => RecvSocketResult::Exit,
         }
     }
@@ -439,7 +440,9 @@ async fn handle_retransmissions_at_ack_recv(
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
     }
-    need_retransmit
+    // If segments remain, restart the timer, because if something was acked,
+    // we made progresss, and if something wasn't acked, we retransmit
+    segments_remain
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {

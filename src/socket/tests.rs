@@ -336,8 +336,7 @@ fn test_client_write_retransmit_due_to_timeout() {
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
     send_segment(&state.tc_socket, state.uut_addr, &ack);
 }
-// TODO: test that timer isn't restarted when something new is sent
-// TODO: test that timer is restarted when one ack is received
+
 #[test]
 fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     let mut state = setup_connected_uut_client();
@@ -402,8 +401,15 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
         state.tc_seq_num,
         state.uut_seq_num + len1 + len2 + len3,
     );
+
+    state.timer.expect_call_to_sleep();
     send_segment(&state.tc_socket, state.uut_addr, &ack1);
+    state.timer.wait_for_call_to_sleep();
+
+    state.timer.expect_call_to_sleep();
     send_segment(&state.tc_socket, state.uut_addr, &ack2);
+    state.timer.wait_for_call_to_sleep();
+
     send_segment(&state.tc_socket, state.uut_addr, &ack3);
 }
 
