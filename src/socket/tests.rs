@@ -356,6 +356,51 @@ fn test_client_write_retransmit_due_to_old_ack() {
 }
 
 #[test]
+fn test_first_segment_acked_but_not_second() {
+    let mut state = setup_connected_uut_client();
+
+    state.timer.expect_call_to_sleep();
+    let data1 = "some data".as_bytes();
+    let len1 = uut_write(&mut state.uut_stream, data1);
+    state.timer.wait_for_call_to_sleep();
+
+    let recv_seg1 = recv_segment(&state);
+    let exp_seg1 =
+        Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
+    assert_eq!(exp_seg1, recv_seg1);
+
+    let data2 = "some other data".as_bytes();
+    let len2 = uut_write(&mut state.uut_stream, data2);
+
+    let recv_seg2 = recv_segment(&state);
+    let exp_seg2 =
+        Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
+    assert_eq!(exp_seg2, recv_seg2);
+
+    let ack1 =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len1);
+
+    // TC sends Ack for the first segment, but not the second
+    // This causes the timer to be restarted
+    state.timer.expect_call_to_sleep();
+    send_segment(&state, &ack1);
+    state.timer.wait_for_call_to_sleep();
+    state.timer.trigger_and_expect_new_call();
+
+    // Only the unacked segment is retransmitted
+    let recv_seg2_retransmit = recv_segment(&state);
+    assert_eq!(exp_seg2, recv_seg2_retransmit);
+    state.timer.wait_for_call_to_sleep();
+
+    let ack2 = Segment::new_empty(
+        Ack,
+        state.tc_seq_num,
+        state.uut_seq_num + len1 + len2,
+    );
+    send_segment(&state, &ack2);
+}
+
+#[test]
 fn test_cumulative_ack() {
     let mut state = setup_connected_uut_client();
 
