@@ -239,25 +239,6 @@ fn test_client_write_once() {
     uut_complete_write(&mut state, b"some data");
 }
 
-fn uut_complete_write(state: &mut State, data: &[u8]) {
-    // Send from the uut
-    state.timer.expect_call_to_sleep();
-    let len = uut_write(state, data);
-    state.timer.wait_for_call_to_sleep();
-
-    // Recv from the tc
-    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
-    assert_eq!(exp_seg, recv_seg);
-    state.uut_seq_num += len as u32;
-
-    // Send ack from the tc
-    let send_seg = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
-
-    recv_check_no_data(&state.tc_socket);
-}
-
 #[test]
 fn test_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
@@ -479,6 +460,31 @@ fn uut_complete_read(state: &mut State, data: &[u8]) {
     assert_eq!(data, read_data);
 }
 
+fn uut_read_stream_once(stream: &mut Stream) -> Vec<u8> {
+    let mut buf = [0; 4096];
+    let amt = stream.read(&mut buf).unwrap();
+    buf[0..amt].to_vec()
+}
+
+fn uut_complete_write(state: &mut State, data: &[u8]) {
+    // Send from the uut
+    state.timer.expect_call_to_sleep();
+    let len = uut_write(state, data);
+    state.timer.wait_for_call_to_sleep();
+
+    // Recv from the tc
+    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
+    assert_eq!(exp_seg, recv_seg);
+    state.uut_seq_num += len as u32;
+
+    // Send ack from the tc
+    let send_seg = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
+
+    recv_check_no_data(&state.tc_socket);
+}
+
 // TODO: Only stream, not state, as argument
 fn uut_write(state: &mut State, data: &[u8]) -> u32 {
     let written_len = state.uut_stream.write(&data).unwrap();
@@ -516,13 +522,6 @@ fn send_segment(
 ) {
     let encoded_seq = segment.encode();
     tc_socket.send_to(&encoded_seq, uut_addr).unwrap();
-}
-
-// Possibly "complete" should be renamed "main flow"
-fn uut_read_stream_once(stream: &mut Stream) -> Vec<u8> {
-    let mut buf = [0; 4096];
-    let amt = stream.read(&mut buf).unwrap();
-    buf[0..amt].to_vec()
 }
 
 // Possibile "white box" things, or "test window" things
