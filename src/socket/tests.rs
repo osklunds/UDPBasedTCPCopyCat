@@ -216,22 +216,6 @@ fn test_client_read_once() {
     uut_complete_read(&mut state, b"some data");
 }
 
-fn uut_complete_read(state: &mut State, data: &[u8]) {
-    // Send from the tc
-    let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
-    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
-    state.tc_seq_num += data.len() as u32;
-
-    // Recv ACK from the uut
-    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
-    let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_ack, recv_seg);
-
-    // Check that the uut received the correct data
-    let read_data = uut_read_stream_once(&mut state.uut_stream);
-    assert_eq!(data, read_data);
-}
-
 #[test]
 fn test_client_read_multiple_times() {
     let mut state = setup_connected_uut_client();
@@ -461,15 +445,38 @@ fn test_client_write_retransmit_due_to_old_ack() {
     assert_eq!(exp_seg2, recv_seg2_retransmit);
 
     // Now the tc sends ack for both of them
+    state.timer.expect_call_to_sleep();
     let send_ack1 =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len1);
     send_segment(&state.tc_socket, state.uut_addr, &send_ack1);
+    state.timer.wait_for_call_to_sleep();
+
     let send_ack2 = Segment::new_empty(
         Ack,
         state.tc_seq_num,
         state.uut_seq_num + len1 + len2,
     );
     send_segment(&state.tc_socket, state.uut_addr, &send_ack2);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Helper functions
+////////////////////////////////////////////////////////////////////////////////
+
+fn uut_complete_read(state: &mut State, data: &[u8]) {
+    // Send from the tc
+    let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
+    send_segment(&state.tc_socket, state.uut_addr, &send_seg);
+    state.tc_seq_num += data.len() as u32;
+
+    // Recv ACK from the uut
+    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_ack, recv_seg);
+
+    // Check that the uut received the correct data
+    let read_data = uut_read_stream_once(&mut state.uut_stream);
+    assert_eq!(data, read_data);
 }
 
 // TODO: Only stream, not state, as argument
