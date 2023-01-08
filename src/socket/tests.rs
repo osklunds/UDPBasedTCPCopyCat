@@ -62,9 +62,8 @@ use crate::segment::Segment;
 // }
 
 // Test cases needed:
-// - Cumulative ack, one full segment, one byte more and one byte less
+// - Cumulative ack, one byte more and one byte less
 //   than the border
-// - Send two segments, ack the first, only second is retransmitted
 // - Send long data that needs two segments
 
 // TODO: Put Main/alternative/expcetional in separate files instead
