@@ -368,6 +368,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     // tc pretends it didn't get data by not sending an ACK. Instead,
     // the timeout expires
     state.timer.trigger_and_expect_new_call();
+    state.timer.wait_for_call_to_sleep();
 
     let recv_seg1_retrans = recv_segment(&state.tc_socket, state.uut_addr);
     assert_eq!(exp_seg1, recv_seg1_retrans);
