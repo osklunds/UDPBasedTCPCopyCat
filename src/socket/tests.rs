@@ -62,6 +62,7 @@ use crate::segment::Segment;
 // - Cumulative ack, one full segment, one byte more and one byte less
 //   than the border
 // - Send two segments, ack the first, only second is retransmitted
+// - Send long data that needs two segments
 
 struct State {
     tc_socket: UdpSocket,
