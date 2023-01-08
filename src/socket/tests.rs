@@ -279,7 +279,7 @@ fn test_client_write_retransmit_due_to_timeout() {
     // Send data from uut
     state.timer.expect_call_to_sleep();
     let data = b"some data";
-    let len = uut_write(&mut state, data);
+    let len = uut_write(&mut state.uut_stream, data);
     state.timer.wait_for_call_to_sleep();
 
     // Recv data from the tc
@@ -311,14 +311,14 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     // Send data from uut
     state.timer.expect_call_to_sleep();
     let data1 = "some data".as_bytes();
-    let len1 = uut_write(&mut state, data1);
+    let len1 = uut_write(&mut state.uut_stream, data1);
     state.timer.wait_for_call_to_sleep();
 
     // Note that the timer was only started for the first write
     let data2 = "some other data".as_bytes();
-    let len2 = uut_write(&mut state, data2);
+    let len2 = uut_write(&mut state.uut_stream, data2);
     let data3 = "some more data".as_bytes();
-    let len3 = uut_write(&mut state, data3);
+    let len3 = uut_write(&mut state.uut_stream, data3);
 
     // Recv data from the tc
     let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -387,7 +387,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
     // Send data1 from uut
     state.timer.expect_call_to_sleep();
     let data1 = b"first data";
-    let len1 = uut_write(&mut state, data1);
+    let len1 = uut_write(&mut state.uut_stream, data1);
     state.timer.wait_for_call_to_sleep();
 
     // Recv data1 from the tc
@@ -398,7 +398,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Send data2 from uut
     let data2 = b"second data";
-    let len2 = uut_write(&mut state, data2);
+    let len2 = uut_write(&mut state.uut_stream, data2);
 
     // Recv data2 from the tc
     let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
@@ -469,7 +469,7 @@ fn uut_read_stream_once(stream: &mut Stream) -> Vec<u8> {
 fn uut_complete_write(state: &mut State, data: &[u8]) {
     // Send from the uut
     state.timer.expect_call_to_sleep();
-    let len = uut_write(state, data);
+    let len = uut_write(&mut state.uut_stream, data);
     state.timer.wait_for_call_to_sleep();
 
     // Recv from the tc
@@ -485,9 +485,8 @@ fn uut_complete_write(state: &mut State, data: &[u8]) {
     recv_check_no_data(&state.tc_socket);
 }
 
-// TODO: Only stream, not state, as argument
-fn uut_write(state: &mut State, data: &[u8]) -> u32 {
-    let written_len = state.uut_stream.write(&data).unwrap();
+fn uut_write(uut_stream: &mut Stream, data: &[u8]) -> u32 {
+    let written_len = uut_stream.write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
     len as u32
