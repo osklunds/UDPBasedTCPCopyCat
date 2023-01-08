@@ -194,7 +194,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     send_segment_to(&tc_socket, uut_addr, &syn_ack);
 
     // Receive ACK
-    let ack = recv_segment(&tc_socket, uut_addr);
+    let ack = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(Ack, ack.kind());
     tc_seq_num += 1;
     assert_eq!(tc_seq_num, ack.ack_num());
@@ -283,7 +283,7 @@ fn test_client_write_retransmit_due_to_timeout() {
     state.timer.wait_for_call_to_sleep();
 
     // Recv data from the tc
-    let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg1 = recv_segment(&state);
     let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data);
     assert_eq!(exp_seg, recv_seg1);
 
@@ -291,7 +291,7 @@ fn test_client_write_retransmit_due_to_timeout() {
     // the timeout expires
     state.timer.trigger_and_expect_new_call();
 
-    let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg2 = recv_segment(&state);
     assert_eq!(exp_seg, recv_seg2);
     state.timer.wait_for_call_to_sleep();
 
@@ -321,17 +321,17 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     let len3 = uut_write(&mut state.uut_stream, data3);
 
     // Recv data from the tc
-    let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg1 = recv_segment(&state);
     let exp_seg1 =
         Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data1);
     assert_eq!(exp_seg1, recv_seg1);
 
-    let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg2 = recv_segment(&state);
     let exp_seg2 =
         Segment::new(Ack, state.uut_seq_num + len1, state.tc_seq_num, &data2);
     assert_eq!(exp_seg2, recv_seg2);
 
-    let recv_seg3 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg3 = recv_segment(&state);
     let exp_seg3 = Segment::new(
         Ack,
         state.uut_seq_num + len1 + len2,
@@ -345,11 +345,11 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     state.timer.trigger_and_expect_new_call();
     state.timer.wait_for_call_to_sleep();
 
-    let recv_seg1_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg1_retrans = recv_segment(&state);
     assert_eq!(exp_seg1, recv_seg1_retrans);
-    let recv_seg2_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg2_retrans = recv_segment(&state);
     assert_eq!(exp_seg2, recv_seg2_retrans);
-    let recv_seg3_retrans = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg3_retrans = recv_segment(&state);
     assert_eq!(exp_seg3, recv_seg3_retrans);
 
     let ack1 =
@@ -391,7 +391,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
     state.timer.wait_for_call_to_sleep();
 
     // Recv data1 from the tc
-    let recv_seg1 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg1 = recv_segment(&state);
     let exp_seg1 =
         Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, data1);
     assert_eq!(exp_seg1, recv_seg1);
@@ -401,7 +401,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
     let len2 = uut_write(&mut state.uut_stream, data2);
 
     // Recv data2 from the tc
-    let recv_seg2 = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg2 = recv_segment(&state);
     let exp_seg2 = Segment::new(
         Ack,
         state.uut_seq_num + len1 as u32,
@@ -420,9 +420,9 @@ fn test_client_write_retransmit_due_to_old_ack() {
     // This causes uut to retransmit everything from the acked seq_num to
     // "current"
     state.timer.wait_for_call_to_sleep();
-    let recv_seg1_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg1_retransmit = recv_segment(&state);
     assert_eq!(exp_seg1, recv_seg1_retransmit);
-    let recv_seg2_retransmit = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg2_retransmit = recv_segment(&state);
     assert_eq!(exp_seg2, recv_seg2_retransmit);
 
     // Now the tc sends ack for both of them
@@ -451,7 +451,7 @@ fn uut_complete_read(state: &mut State, data: &[u8]) {
     state.tc_seq_num += data.len() as u32;
 
     // Recv ACK from the uut
-    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg = recv_segment(&state);
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_ack, recv_seg);
 
@@ -473,7 +473,7 @@ fn uut_complete_write(state: &mut State, data: &[u8]) {
     state.timer.wait_for_call_to_sleep();
 
     // Recv from the tc
-    let recv_seg = recv_segment(&state.tc_socket, state.uut_addr);
+    let recv_seg = recv_segment(&state);
     let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
     assert_eq!(exp_seg, recv_seg);
     state.uut_seq_num += len as u32;
@@ -492,7 +492,11 @@ fn uut_write(uut_stream: &mut Stream, data: &[u8]) -> u32 {
     len as u32
 }
 
-fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
+fn recv_segment(state: &State) -> Segment {
+    recv_segment_from(&state.tc_socket, state.uut_addr)
+}
+
+fn recv_segment_from(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
     let (seg, recv_addr) = recv_segment_with_addr(tc_socket);
     assert_eq!(uut_addr, recv_addr);
     seg
