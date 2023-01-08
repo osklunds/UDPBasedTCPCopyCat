@@ -184,7 +184,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
         Stream::connect_custom_timer(Arc::clone(&timer), tc_addr).unwrap();
 
     // Receive SYN
-    let (syn, uut_addr) = recv_segment_from(&tc_socket);
+    let (syn, uut_addr) = recv_segment_with_addr(&tc_socket);
     assert_eq!(Syn, syn.kind());
 
     // Send SYN-ACK
@@ -493,12 +493,12 @@ fn uut_write(uut_stream: &mut Stream, data: &[u8]) -> u32 {
 }
 
 fn recv_segment(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
-    let (seg, recv_addr) = recv_segment_from(tc_socket);
+    let (seg, recv_addr) = recv_segment_with_addr(tc_socket);
     assert_eq!(uut_addr, recv_addr);
     seg
 }
 
-fn recv_segment_from(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
+fn recv_segment_with_addr(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
     let mut buf = [0; 4096];
     let (amt, recv_addr) = tc_socket.recv_from(&mut buf).unwrap();
     (Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
