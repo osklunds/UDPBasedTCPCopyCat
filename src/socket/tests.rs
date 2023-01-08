@@ -213,59 +213,59 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 fn test_client_read_once() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, b"some data");
+    main_flow_uut_read(&mut state, b"some data");
 }
 
 #[test]
 fn test_client_read_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, b"first rweouinwrte");
-    uut_complete_read(&mut state, b"second hfuiasud");
-    uut_complete_read(&mut state, b"third uifdshufihsiughsyudfghkusfdf");
-    uut_complete_read(&mut state, b"fourth fuidshfadgaerge");
-    uut_complete_read(&mut state, b"fifth dhuifghuifdlfoiwejiow");
-    uut_complete_read(&mut state, b"sixth fdauykfudsfgs");
-    uut_complete_read(&mut state, b"seventh fsdhsdgfsd");
-    uut_complete_read(&mut state, b"eighth ijogifdgire");
-    uut_complete_read(&mut state, b"ninth ertwrw");
-    uut_complete_read(&mut state, b"tenth uhfsdghsu");
+    main_flow_uut_read(&mut state, b"first rweouinwrte");
+    main_flow_uut_read(&mut state, b"second hfuiasud");
+    main_flow_uut_read(&mut state, b"third uifdshufihsiughsyudfghkusfdf");
+    main_flow_uut_read(&mut state, b"fourth fuidshfadgaerge");
+    main_flow_uut_read(&mut state, b"fifth dhuifghuifdlfoiwejiow");
+    main_flow_uut_read(&mut state, b"sixth fdauykfudsfgs");
+    main_flow_uut_read(&mut state, b"seventh fsdhsdgfsd");
+    main_flow_uut_read(&mut state, b"eighth ijogifdgire");
+    main_flow_uut_read(&mut state, b"ninth ertwrw");
+    main_flow_uut_read(&mut state, b"tenth uhfsdghsu");
 }
 
 #[test]
 fn test_client_write_once() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_write(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data");
 }
 
 #[test]
 fn test_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_write(&mut state, b"first agfs");
-    uut_complete_write(&mut state, b"second gfdhdgfh");
-    uut_complete_write(&mut state, b"third dfafsdfads");
-    uut_complete_write(&mut state, b"fourth dfafas");
-    uut_complete_write(&mut state, b"fifth dfasfasfsdaf");
-    uut_complete_write(&mut state, b"sixth thythrt");
-    uut_complete_write(&mut state, b"seventh fdsaref");
-    uut_complete_write(&mut state, b"eighth dagfsdrgrege");
-    uut_complete_write(&mut state, b"ninth asfaerger");
-    uut_complete_write(&mut state, b"tenth trehjk");
+    main_flow_uut_write(&mut state, b"first agfs");
+    main_flow_uut_write(&mut state, b"second gfdhdgfh");
+    main_flow_uut_write(&mut state, b"third dfafsdfads");
+    main_flow_uut_write(&mut state, b"fourth dfafas");
+    main_flow_uut_write(&mut state, b"fifth dfasfasfsdaf");
+    main_flow_uut_write(&mut state, b"sixth thythrt");
+    main_flow_uut_write(&mut state, b"seventh fdsaref");
+    main_flow_uut_write(&mut state, b"eighth dagfsdrgrege");
+    main_flow_uut_write(&mut state, b"ninth asfaerger");
+    main_flow_uut_write(&mut state, b"tenth trehjk");
 }
 
 #[test]
 fn test_client_reads_and_writes() {
     let mut state = setup_connected_uut_client();
 
-    uut_complete_read(&mut state, b"first");
-    uut_complete_write(&mut state, b"second");
-    uut_complete_write(&mut state, b"third");
-    uut_complete_write(&mut state, b"fourth");
-    uut_complete_read(&mut state, b"fifth");
-    uut_complete_read(&mut state, b"sixth");
-    uut_complete_write(&mut state, b"seventh");
+    main_flow_uut_read(&mut state, b"first");
+    main_flow_uut_write(&mut state, b"second");
+    main_flow_uut_write(&mut state, b"third");
+    main_flow_uut_write(&mut state, b"fourth");
+    main_flow_uut_read(&mut state, b"fifth");
+    main_flow_uut_read(&mut state, b"sixth");
+    main_flow_uut_write(&mut state, b"seventh");
 }
 
 #[test]
@@ -274,7 +274,7 @@ fn test_client_write_retransmit_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, b"some initial data");
+    main_flow_uut_write(&mut state, b"some initial data");
 
     // Send data from uut
     state.timer.expect_call_to_sleep();
@@ -306,7 +306,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, b"some initial data");
+    main_flow_uut_write(&mut state, b"some initial data");
 
     // Send data from uut
     state.timer.expect_call_to_sleep();
@@ -382,7 +382,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    uut_complete_write(&mut state, b"some initial data");
+    main_flow_uut_write(&mut state, b"some initial data");
 
     // Send data1 from uut
     state.timer.expect_call_to_sleep();
@@ -444,7 +444,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
 
-fn uut_complete_read(state: &mut State, data: &[u8]) {
+fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     // Send from the tc
     let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
     send_segment(&state, &send_seg);
@@ -456,17 +456,17 @@ fn uut_complete_read(state: &mut State, data: &[u8]) {
     assert_eq!(exp_ack, recv_seg);
 
     // Check that the uut received the correct data
-    let read_data = uut_read_stream_once(&mut state.uut_stream);
+    let read_data = read_uut_stream_once(&mut state.uut_stream);
     assert_eq!(data, read_data);
 }
 
-fn uut_read_stream_once(stream: &mut Stream) -> Vec<u8> {
+fn read_uut_stream_once(stream: &mut Stream) -> Vec<u8> {
     let mut buf = [0; 4096];
     let amt = stream.read(&mut buf).unwrap();
     buf[0..amt].to_vec()
 }
 
-fn uut_complete_write(state: &mut State, data: &[u8]) {
+fn main_flow_uut_write(state: &mut State, data: &[u8]) {
     // Send from the uut
     state.timer.expect_call_to_sleep();
     let len = uut_write(&mut state.uut_stream, data);
