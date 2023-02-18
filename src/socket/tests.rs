@@ -89,9 +89,16 @@ fn setup_connected_uut_client() -> State {
 fn uut_connect(tc_socket: UdpSocket) -> State {
     // Connect
     let timer = Arc::new(MockTimer::new());
+    let timer_cloned = Arc::clone(&timer);
     let tc_addr = tc_socket.local_addr().unwrap();
-    let uut_stream =
-        Stream::connect_custom_timer(Arc::clone(&timer), tc_addr).unwrap();
+    let uut_stream = thread::Builder::new()
+        .name("connect client".to_string())
+        .spawn(move || {
+            Stream::connect_custom_timer(timer_cloned, tc_addr).unwrap()
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 
     // Receive SYN
     let (syn, uut_addr) = recv_segment_with_addr(&tc_socket);
