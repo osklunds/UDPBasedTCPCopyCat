@@ -126,15 +126,15 @@ impl Stream {
 
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
-                block_on(UdpSocket::connect(&udp_socket, peer_addr)).unwrap();
+                let (send_next, receive_next) = block_on(async {
+                    UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
+                    Self::client_handshake(&udp_socket).await
+                });
 
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
                         block_on(async {
-                            let (send_next, receive_next) =
-                                Self::client_handshake(&udp_socket).await;
-
                             let state = ConnectedState {
                                 send_next,
                                 receive_next,
