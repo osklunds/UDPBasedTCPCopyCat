@@ -60,6 +60,7 @@ struct ServerStream {
 struct ClientStream {
     read_rx: Receiver<Vec<u8>>,
     write_tx: Sender<Vec<u8>>,
+    state: Arc<Mutex<ConnectedState>>,
 }
 
 struct ConnectedState {
@@ -139,13 +140,14 @@ impl Stream {
 
                 let state_in_mutex = Mutex::new(state);
                 let state_in_arc = Arc::new(state_in_mutex);
+                let state_for_loop = Arc::clone(&state_in_arc);
 
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
                         block_on(connected_loop(
                             timer,
-                            Arc::clone(&state_in_arc),
+                            state_for_loop,
                             udp_socket,
                             read_tx,
                             write_rx,
@@ -153,7 +155,11 @@ impl Stream {
                     })
                     .unwrap();
 
-                let client_stream = ClientStream { read_rx, write_tx };
+                let client_stream = ClientStream {
+                    read_rx,
+                    write_tx,
+                    state: state_in_arc,
+                };
                 let inner_stream = InnerStream::Client(client_stream);
                 let stream = Stream { inner_stream };
                 Ok(stream)
