@@ -118,7 +118,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 
     State {
         tc_socket,
-        uut_stream,
+        uut_stream: Some(uut_stream),
         uut_addr,
         tc_seq_num,
         uut_seq_num,
@@ -201,7 +201,7 @@ fn test_disconnect() {
     main_flow_uut_write(&mut state, b"some data");
 
     state.timer.expect_call_to_sleep();
-    state.uut_stream.shutdown();
+    state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
 
     let recv_seg = recv_segment(&state);
@@ -210,6 +210,9 @@ fn test_disconnect() {
 
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
+    println!("hej");
+
+    state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -430,7 +433,8 @@ fn test_multi_segment_write() {
 
     // Send from uut
     state.timer.expect_call_to_sleep();
-    let written_len = state.uut_stream.write(&data).unwrap() as u32;
+    let written_len =
+        state.uut_stream.as_mut().unwrap().write(&data).unwrap() as u32;
     assert_eq!(len, written_len);
     state.timer.wait_for_call_to_sleep();
 
@@ -480,7 +484,7 @@ fn test_same_segment_carries_data_and_acks() {
 
 struct State {
     tc_socket: UdpSocket,
-    uut_stream: Stream,
+    uut_stream: Option<Stream>,
     uut_addr: SocketAddr,
     tc_seq_num: u32,
     uut_seq_num: u32,
@@ -508,7 +512,8 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     assert_eq!(exp_ack, recv_seg);
 
     // Check that the uut received the correct data
-    let read_data = read_uut_stream_once(&mut state.uut_stream);
+    let read_data =
+        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
     assert_eq!(data, read_data);
 }
 
@@ -533,7 +538,7 @@ fn main_flow_uut_write(state: &mut State, data: &[u8]) {
 
 fn uut_write(state: &mut State, data: &[u8]) -> (u32, Segment) {
     // Send from the uut
-    let written_len = state.uut_stream.write(&data).unwrap();
+    let written_len = state.uut_stream.as_mut().unwrap().write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
 

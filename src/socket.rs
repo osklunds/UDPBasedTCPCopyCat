@@ -263,7 +263,7 @@ impl Stream {
 
     pub fn wait_shutdown_complete(self) {
         if let InnerStream::Client(client_stream) = self.inner_stream {
-            client_stream.join_handle.join();
+            client_stream.join_handle.join().unwrap();
         }
     }
 
