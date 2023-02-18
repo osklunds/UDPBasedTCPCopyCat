@@ -151,7 +151,7 @@ impl Stream {
         udp_socket: UdpSocket,
         read_tx: Sender<Vec<u8>>,
         write_rx: Receiver<Vec<u8>>,
-    ) {
+    ) -> Arc<Mutex<ConnectedState>> {
         let (send_next, receive_next) =
             Self::client_handshake(&udp_socket).await;
 
@@ -161,7 +161,19 @@ impl Stream {
             buffer: Vec::new(),
         };
 
-        connected_loop(timer, state, udp_socket, read_tx, write_rx).await;
+        let state_in_mutex = Mutex::new(state);
+        let state_in_arc = Arc::new(state_in_mutex);
+
+        connected_loop(
+            timer,
+            Arc::clone(&state_in_arc),
+            udp_socket,
+            read_tx,
+            write_rx,
+        )
+        .await;
+
+        state_in_arc
     }
 
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
@@ -292,23 +304,20 @@ impl ServerStream {
 
 async fn connected_loop<T: Timer>(
     timer: Arc<T>,
-    connected_state: ConnectedState,
+    state: Arc<Mutex<ConnectedState>>,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
     write_rx: Receiver<Vec<u8>>,
 ) {
-    let connected_state_in_mutex = Mutex::new(connected_state);
-    let connected_state_in_arc = Arc::new(connected_state_in_mutex);
-
     let recv_socket_state = RecvSocketState {
         udp_socket: &udp_socket,
         read_tx,
-        connected_state: Arc::clone(&connected_state_in_arc),
+        connected_state: Arc::clone(&state),
     };
     let recv_write_rx_state = RecvWriteRxState {
         udp_socket: &udp_socket,
         write_rx,
-        connected_state: Arc::clone(&connected_state_in_arc),
+        connected_state: Arc::clone(&state),
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
@@ -363,10 +372,14 @@ async fn connected_loop<T: Timer>(
             },
 
             _ = future_timeout => {
-                let locked_connected_state = connected_state_in_arc.lock().await;
+                let locked_connected_state = state.lock().await;
 
                 for segment in &locked_connected_state.buffer {
-                    send_segment(&udp_socket, udp_socket.peer_addr().unwrap(), &segment).await;
+                    send_segment(
+                        &udp_socket,
+                        udp_socket.peer_addr().unwrap(),
+                        &segment
+                    ).await;
                 }
 
                 future_timeout.set(timeout(&timer, false).fuse());
