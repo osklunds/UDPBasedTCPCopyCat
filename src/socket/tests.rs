@@ -65,6 +65,9 @@ use crate::segment::Segment;
 // - Cumulative ack, one byte more and one byte less
 //   than the border
 // - Send long data that needs two segments
+// - shutdown one side at a time
+// - shutdown an retransmissions one side at a time
+// - close causes segment to be lost
 
 // TODO: Put Main/alternative/expcetional in separate files instead
 ////////////////////////////////////////////////////////////////////////////////
