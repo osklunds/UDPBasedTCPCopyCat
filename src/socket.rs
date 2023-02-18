@@ -324,7 +324,7 @@ async fn connected_loop<T: Timer>(
         read_tx,
         connected_state: Arc::clone(&state),
     };
-    let recv_user_action_rx_state = RecvWriteRxState {
+    let recv_user_action_rx_state = RecvUserActionState {
         udp_socket: &udp_socket,
         user_action_rx,
         connected_state: Arc::clone(&state),
@@ -369,7 +369,7 @@ async fn connected_loop<T: Timer>(
             },
 
             result = future_recv_user_action_rx => {
-                if let RecvWriteRxResult::Continue(new_user_action_rx_state) = result {
+                if let RecvUserActionResult::Continue(new_user_action_rx_state) = result {
                     let new_future_recv_user_action_rx =
                         recv_user_action_rx(new_user_action_rx_state).fuse();
                     future_recv_user_action_rx.set(new_future_recv_user_action_rx);
@@ -515,18 +515,20 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     }
 }
 
-enum RecvWriteRxResult<'a> {
-    Continue(RecvWriteRxState<'a>),
+enum RecvUserActionResult<'a> {
+    Continue(RecvUserActionState<'a>),
     Exit,
 }
 
-struct RecvWriteRxState<'a> {
+struct RecvUserActionState<'a> {
     udp_socket: &'a UdpSocket,
     user_action_rx: Receiver<UserAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
+async fn recv_user_action_rx(
+    state: RecvUserActionState<'_>,
+) -> RecvUserActionResult {
     match state.user_action_rx.recv().await {
         Ok(user_action) => {
             let mut locked_connected_state = state.connected_state.lock().await;
@@ -564,14 +566,14 @@ async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
                 }
                 UserAction::Close => {
                     // TODO: Avoid using early return
-                    return RecvWriteRxResult::Exit;
+                    return RecvUserActionResult::Exit;
                 }
             }
 
             drop(locked_connected_state);
-            RecvWriteRxResult::Continue(state)
+            RecvUserActionResult::Continue(state)
         }
-        Err(_) => RecvWriteRxResult::Exit,
+        Err(_) => RecvUserActionResult::Exit,
     }
 }
 
