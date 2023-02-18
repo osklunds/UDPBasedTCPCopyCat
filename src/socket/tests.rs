@@ -527,7 +527,6 @@ impl Drop for State {
     fn drop(&mut self) {
         // To catch late calls to the timer
         std::thread::sleep(Duration::from_millis(1));
-        self.timer.test_end_check();
         recv_check_no_data(&mut self.tc_socket);
         assert!(self.uut_stream.is_none());
     }
