@@ -72,8 +72,9 @@ use crate::segment::Segment;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn test_connect() {
-    setup_connected_uut_client();
+fn test_connect_shutdown() {
+    let state = setup_connected_uut_client();
+    uut_shutdown(state);
 }
 
 fn setup_connected_uut_client() -> State {
@@ -124,6 +125,38 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
         uut_seq_num,
         timer,
     }
+}
+
+// Disconnect should send FIN, not accept more writes
+// When receive FIN, send FIN, then same as above
+// When all data has been read, return 0 length
+// close stops the process
+// If close returns true, it means buffer emppty, include FIN
+// so all data was received
+// Perhaps also add a poll function to check if closing state
+fn uut_shutdown(mut state: State) {
+    state.timer.expect_call_to_sleep();
+    state.uut_stream.as_mut().unwrap().shutdown();
+    state.timer.wait_for_call_to_sleep();
+
+    let recv_seg = recv_segment(&state);
+    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_seg, recv_seg);
+
+    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_seg);
+
+    state.uut_stream.take().unwrap().wait_shutdown_complete();
+}
+
+#[test]
+fn test_close() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data");
+
+    state.uut_stream.take().unwrap().close();
 }
 
 #[test]
@@ -183,45 +216,6 @@ fn test_client_reads_and_writes() {
     main_flow_uut_read(&mut state, b"fifth");
     main_flow_uut_read(&mut state, b"sixth");
     main_flow_uut_write(&mut state, b"seventh");
-}
-
-#[test]
-fn test_shutdown() {
-    // Disconnect should send FIN, not accept more writes
-    // When receive FIN, send FIN, then same as above
-    // When all data has been read, return 0 length
-    // close stops the process
-    // If close returns true, it means buffer emppty, include FIN
-    // so all data was received
-    // Perhaps also add a poll function to check if closing state
-
-    let mut state = setup_connected_uut_client();
-
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data");
-
-    state.timer.expect_call_to_sleep();
-    state.uut_stream.as_mut().unwrap().shutdown();
-    state.timer.wait_for_call_to_sleep();
-
-    let recv_seg = recv_segment(&state);
-    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_seg, recv_seg);
-
-    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state, &send_seg);
-
-    state.uut_stream.take().unwrap().wait_shutdown_complete();
-}
-
-#[test]
-fn test_close() {
-    let mut state = setup_connected_uut_client();
-
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data");
-
-    state.uut_stream.take().unwrap().close();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
