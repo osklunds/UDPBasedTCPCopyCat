@@ -135,6 +135,9 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 // so all data was received
 // Perhaps also add a poll function to check if closing state
 fn uut_shutdown(mut state: State) {
+    // To make sure the buffer is empty so that a new timer call
+    // will be made
+    thread::sleep(Duration::from_millis(1));
     state.timer.expect_call_to_sleep();
     state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
@@ -164,6 +167,8 @@ fn test_client_read_once() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"some data");
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -180,6 +185,8 @@ fn test_client_read_multiple_times() {
     main_flow_uut_read(&mut state, b"eighth ijogifdgire");
     main_flow_uut_read(&mut state, b"ninth ertwrw");
     main_flow_uut_read(&mut state, b"tenth uhfsdghsu");
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -187,6 +194,8 @@ fn test_client_write_once() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data");
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -203,6 +212,8 @@ fn test_client_write_multiple_times() {
     main_flow_uut_write(&mut state, b"eighth dagfsdrgrege");
     main_flow_uut_write(&mut state, b"ninth asfaerger");
     main_flow_uut_write(&mut state, b"tenth trehjk");
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -216,6 +227,8 @@ fn test_client_reads_and_writes() {
     main_flow_uut_read(&mut state, b"fifth");
     main_flow_uut_read(&mut state, b"sixth");
     main_flow_uut_write(&mut state, b"seventh");
+
+    uut_shutdown(state);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -251,6 +264,8 @@ fn test_client_write_retransmit_due_to_timeout() {
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
     send_segment(&state, &ack);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -312,6 +327,8 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     state.timer.wait_for_call_to_sleep();
 
     send_segment(&state, &ack3);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -363,6 +380,8 @@ fn test_client_write_retransmit_due_to_old_ack() {
         initial_uut_seq_num + len1 + len2,
     );
     send_segment(&state, &send_ack2);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -399,6 +418,8 @@ fn test_first_segment_acked_but_not_second() {
         initial_uut_seq_num + len1 + len2,
     );
     send_segment(&state, &ack2);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -421,6 +442,8 @@ fn test_cumulative_ack() {
     );
 
     send_segment(&state, &ack);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -429,6 +452,7 @@ fn test_multi_segment_write() {
 
     // Generate some long data to write
     let len = MAXIMUM_SEGMENT_SIZE + 10 + rand::random::<u32>() % 100;
+    assert!(len < MAXIMUM_SEGMENT_SIZE * 2);
     let mut data: Vec<u8> = Vec::new();
     for _ in 0..len {
         data.push(rand::random());
@@ -461,10 +485,13 @@ fn test_multi_segment_write() {
     );
     assert_eq!(exp_seg2, recv_seg2);
 
-    let ack =
-        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + len);
+    state.uut_seq_num += len;
+
+    let ack = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
 
     send_segment(&state, &ack);
+
+    uut_shutdown(state);
 }
 
 #[test]
@@ -479,6 +506,8 @@ fn test_same_segment_carries_data_and_acks() {
 
     // Then send some data from tc, without first sending a separate ACK
     main_flow_uut_read(&mut state, b"some other data");
+
+    uut_shutdown(state);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -500,6 +529,7 @@ impl Drop for State {
         std::thread::sleep(Duration::from_millis(1));
         self.timer.test_end_check();
         recv_check_no_data(&mut self.tc_socket);
+        assert!(self.uut_stream.is_none());
     }
 }
 
