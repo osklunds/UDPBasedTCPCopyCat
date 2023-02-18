@@ -369,7 +369,7 @@ async fn connected_loop<T: Timer>(
             },
 
             result = future_recv_user_action_rx => {
-                if let RecvWriteRxResult::Continue(new_user_action_rx_state, start_timer) = result {
+                if let RecvWriteRxResult::Continue(new_user_action_rx_state) = result {
                     let new_future_recv_user_action_rx =
                         recv_user_action_rx(new_user_action_rx_state).fuse();
                     future_recv_user_action_rx.set(new_future_recv_user_action_rx);
@@ -377,7 +377,7 @@ async fn connected_loop<T: Timer>(
                     // let locked_connected_state = connected_state_in_arc.lock().await;
                     // let buffer = &locked_connected_state.buffer;
                     // assert_eq!(timer_running, buffer.len() > 0);
-                    if !timer_running && start_timer {
+                    if !timer_running {
                         future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
                     }
@@ -516,7 +516,7 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
 }
 
 enum RecvWriteRxResult<'a> {
-    Continue(RecvWriteRxState<'a>, bool),
+    Continue(RecvWriteRxState<'a>),
     Exit,
 }
 
@@ -568,11 +568,8 @@ async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
                 }
             }
 
-            // TODO: The below should always be true?
-            let start_timer = locked_connected_state.buffer.len() > 0;
-
             drop(locked_connected_state);
-            RecvWriteRxResult::Continue(state, start_timer)
+            RecvWriteRxResult::Continue(state)
         }
         Err(_) => RecvWriteRxResult::Exit,
     }
