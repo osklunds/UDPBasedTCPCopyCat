@@ -210,7 +210,6 @@ fn test_disconnect() {
 
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
-    println!("hej");
 
     state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
