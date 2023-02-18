@@ -270,30 +270,6 @@ impl Stream {
             client_stream.join_handle.join().unwrap();
         }
     }
-
-    // TODO: Add wait_close, that waits until done
-    // rename below force_close
-    // loop should return when buffer empty and FIN
-    // maybe call join on the join handle?
-
-    pub fn close(&mut self) -> CloseResult {
-        if let InnerStream::Client(client_stream) = &self.inner_stream {
-            block_on(async {
-                let locked_connected_state = client_stream.state.lock().await;
-
-                if locked_connected_state.buffer.is_empty() {
-                    CloseResult::AllDataSent
-                } else {
-                    CloseResult::DataRemaining
-                }
-            })
-            // TODO: Return true iff buffer empty, and stop the process
-            // and close the UDP socket
-        } else {
-            // TODO: Handle for server too
-            CloseResult::AllDataSent
-        }
-    }
 }
 
 impl ClientStream {

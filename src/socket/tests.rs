@@ -186,7 +186,7 @@ fn test_client_reads_and_writes() {
 }
 
 #[test]
-fn test_disconnect() {
+fn test_shutdown() {
     // Disconnect should send FIN, not accept more writes
     // When receive FIN, send FIN, then same as above
     // When all data has been read, return 0 length
