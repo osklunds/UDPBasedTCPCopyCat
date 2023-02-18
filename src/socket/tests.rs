@@ -178,6 +178,31 @@ fn test_client_reads_and_writes() {
     main_flow_uut_write(&mut state, b"seventh");
 }
 
+#[test]
+fn test_disconnect() {
+    // Disconnect should send FIN, not accept more writes
+    // When receive FIN, send FIN, then same as above
+    // When all data has been read, return 0 length
+    // close stops the process
+
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data");
+
+    state.timer.expect_call_to_sleep();
+    state.uut_stream.disconnect();
+    state.timer.wait_for_call_to_sleep();
+
+    let recv_seg = recv_segment(&state);
+    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_seg, recv_seg);
+
+    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_seg);
+    // TOOD: Call close() and see that returns true
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Alternative flow test cases
 ////////////////////////////////////////////////////////////////////////////////

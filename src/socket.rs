@@ -235,6 +235,22 @@ impl Stream {
             }
         }
     }
+
+    pub fn disconnect(&mut self) {
+        // TODO: Instead of 0-length, make it a proper enum
+        if let InnerStream::Client(client_stream) = &self.inner_stream {
+            block_on(client_stream.write_tx.send(b"".to_vec())).unwrap();
+        }
+    }
+
+    pub fn close(&mut self) -> bool {
+        if let InnerStream::Client(client_stream) = &self.inner_stream {
+            // TODO: Return true iff buffer empty, and stop the process
+            // and close the UDP socket
+        }
+
+        true
+    }
 }
 
 impl ClientStream {
@@ -479,21 +495,37 @@ async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
         Ok(data) => {
             let mut locked_connected_state = state.connected_state.lock().await;
 
-            for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
-                let seg = Segment::new(
-                    Ack,
+            if data.is_empty() {
+                // TODO: Send FIN
+
+                let seg = Segment::new_empty(
+                    Fin,
                     locked_connected_state.send_next,
                     locked_connected_state.receive_next,
-                    &chunk,
                 );
 
                 let peer_addr = state.udp_socket.peer_addr().unwrap();
                 send_segment(state.udp_socket, peer_addr, &seg).await;
 
-                locked_connected_state.send_next += chunk.len() as u32;
                 locked_connected_state.buffer.push(seg);
+            } else {
+                for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
+                    let seg = Segment::new(
+                        Ack,
+                        locked_connected_state.send_next,
+                        locked_connected_state.receive_next,
+                        &chunk,
+                    );
+
+                    let peer_addr = state.udp_socket.peer_addr().unwrap();
+                    send_segment(state.udp_socket, peer_addr, &seg).await;
+
+                    locked_connected_state.send_next += chunk.len() as u32;
+                    locked_connected_state.buffer.push(seg);
+                }
             }
 
+            // TODO: The below should always be true?
             let start_timer = locked_connected_state.buffer.len() > 0;
 
             drop(locked_connected_state);
