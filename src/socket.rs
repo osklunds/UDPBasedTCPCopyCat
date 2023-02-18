@@ -131,9 +131,28 @@ impl Stream {
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        block_on(Self::client(
-                            timer, udp_socket, read_tx, write_rx,
-                        ))
+                        block_on(async {
+                            let (send_next, receive_next) =
+                                Self::client_handshake(&udp_socket).await;
+
+                            let state = ConnectedState {
+                                send_next,
+                                receive_next,
+                                buffer: Vec::new(),
+                            };
+
+                            let state_in_mutex = Mutex::new(state);
+                            let state_in_arc = Arc::new(state_in_mutex);
+
+                            connected_loop(
+                                timer,
+                                Arc::clone(&state_in_arc),
+                                udp_socket,
+                                read_tx,
+                                write_rx,
+                            )
+                            .await;
+                        })
                     })
                     .unwrap();
 
@@ -144,36 +163,6 @@ impl Stream {
             }
             Err(err) => Err(err),
         }
-    }
-
-    async fn client<T: Timer>(
-        timer: Arc<T>,
-        udp_socket: UdpSocket,
-        read_tx: Sender<Vec<u8>>,
-        write_rx: Receiver<Vec<u8>>,
-    ) -> Arc<Mutex<ConnectedState>> {
-        let (send_next, receive_next) =
-            Self::client_handshake(&udp_socket).await;
-
-        let state = ConnectedState {
-            send_next,
-            receive_next,
-            buffer: Vec::new(),
-        };
-
-        let state_in_mutex = Mutex::new(state);
-        let state_in_arc = Arc::new(state_in_mutex);
-
-        connected_loop(
-            timer,
-            Arc::clone(&state_in_arc),
-            udp_socket,
-            read_tx,
-            write_rx,
-        )
-        .await;
-
-        state_in_arc
     }
 
     async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
