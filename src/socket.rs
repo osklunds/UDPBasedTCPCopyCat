@@ -59,8 +59,14 @@ struct ServerStream {
 
 struct ClientStream {
     read_rx: Receiver<Vec<u8>>,
-    write_tx: Sender<Vec<u8>>,
+    user_action_tx: Sender<UserAction>,
     state: Arc<Mutex<ConnectedState>>,
+}
+
+enum UserAction {
+    SendData(Vec<u8>),
+    Shutdown,
+    Close,
 }
 
 struct ConnectedState {
@@ -123,7 +129,7 @@ impl Stream {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
         let (read_tx, read_rx) = async_channel::unbounded();
-        let (write_tx, write_rx) = async_channel::unbounded();
+        let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
@@ -150,13 +156,13 @@ impl Stream {
                             state_for_loop,
                             udp_socket,
                             read_tx,
-                            write_rx,
+                            user_action_rx,
                         ))
                     })
                     .unwrap();
                 let client_stream = ClientStream {
                     read_rx,
-                    write_tx,
+                    user_action_tx,
                     state: state_in_arc,
                 };
                 let inner_stream = InnerStream::Client(client_stream);
@@ -248,7 +254,8 @@ impl Stream {
     pub fn disconnect(&mut self) {
         // TODO: Instead of 0-length, make it a proper enum
         if let InnerStream::Client(client_stream) = &self.inner_stream {
-            block_on(client_stream.write_tx.send(b"".to_vec())).unwrap();
+            block_on(client_stream.user_action_tx.send(UserAction::Shutdown))
+                .unwrap();
         }
     }
 
@@ -280,7 +287,8 @@ impl Stream {
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() > 0);
-        block_on(self.write_tx.send(buf.to_vec())).unwrap();
+        block_on(self.user_action_tx.send(UserAction::SendData(buf.to_vec())))
+            .unwrap();
         Ok(buf.len())
     }
 
@@ -313,30 +321,35 @@ async fn connected_loop<T: Timer>(
     state: Arc<Mutex<ConnectedState>>,
     udp_socket: UdpSocket,
     read_tx: Sender<Vec<u8>>,
-    write_rx: Receiver<Vec<u8>>,
+    user_action_rx: Receiver<UserAction>,
 ) {
     let recv_socket_state = RecvSocketState {
         udp_socket: &udp_socket,
         read_tx,
         connected_state: Arc::clone(&state),
     };
-    let recv_write_rx_state = RecvWriteRxState {
+    let recv_user_action_rx_state = RecvWriteRxState {
         udp_socket: &udp_socket,
-        write_rx,
+        user_action_rx,
         connected_state: Arc::clone(&state),
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let future_recv_write_rx = recv_write_rx(recv_write_rx_state).fuse();
+    let future_recv_user_action_rx =
+        recv_user_action_rx(recv_user_action_rx_state).fuse();
     let future_timeout = timeout(&timer, true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
-    // if the timeout future so be cleared or not. recv_write_rx returns
+    // if the timeout future so be cleared or not. recv_user_action_rx returns
     // Option<Future> which replaces the old timeout future.
 
     // TODO: Maybe move to connected state. Maybe it can be cleaned up
     // in some other better way.
     let mut timer_running = false;
-    pin_mut!(future_recv_socket, future_recv_write_rx, future_timeout);
+    pin_mut!(
+        future_recv_socket,
+        future_recv_user_action_rx,
+        future_timeout
+    );
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
@@ -359,11 +372,11 @@ async fn connected_loop<T: Timer>(
                 }
             },
 
-            result = future_recv_write_rx => {
-                if let RecvWriteRxResult::Continue(new_write_rx_state, start_timer) = result {
-                    let new_future_recv_write_rx =
-                        recv_write_rx(new_write_rx_state).fuse();
-                    future_recv_write_rx.set(new_future_recv_write_rx);
+            result = future_recv_user_action_rx => {
+                if let RecvWriteRxResult::Continue(new_user_action_rx_state, start_timer) = result {
+                    let new_future_recv_user_action_rx =
+                        recv_user_action_rx(new_user_action_rx_state).fuse();
+                    future_recv_user_action_rx.set(new_future_recv_user_action_rx);
 
                     // let locked_connected_state = connected_state_in_arc.lock().await;
                     // let buffer = &locked_connected_state.buffer;
@@ -511,42 +524,48 @@ enum RecvWriteRxResult<'a> {
 
 struct RecvWriteRxState<'a> {
     udp_socket: &'a UdpSocket,
-    write_rx: Receiver<Vec<u8>>,
+    user_action_rx: Receiver<UserAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_write_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
-    match state.write_rx.recv().await {
-        Ok(data) => {
+async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
+    match state.user_action_rx.recv().await {
+        Ok(user_action) => {
             let mut locked_connected_state = state.connected_state.lock().await;
 
-            if data.is_empty() {
-                // TODO: Send FIN
+            match user_action {
+                UserAction::Shutdown => {
+                    // TODO: Send FIN
 
-                let seg = Segment::new_empty(
-                    Fin,
-                    locked_connected_state.send_next,
-                    locked_connected_state.receive_next,
-                );
-
-                let peer_addr = state.udp_socket.peer_addr().unwrap();
-                send_segment(state.udp_socket, peer_addr, &seg).await;
-
-                locked_connected_state.buffer.push(seg);
-            } else {
-                for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
-                    let seg = Segment::new(
-                        Ack,
+                    let seg = Segment::new_empty(
+                        Fin,
                         locked_connected_state.send_next,
                         locked_connected_state.receive_next,
-                        &chunk,
                     );
 
                     let peer_addr = state.udp_socket.peer_addr().unwrap();
                     send_segment(state.udp_socket, peer_addr, &seg).await;
 
-                    locked_connected_state.send_next += chunk.len() as u32;
                     locked_connected_state.buffer.push(seg);
+                }
+                UserAction::SendData(data) => {
+                    for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
+                        let seg = Segment::new(
+                            Ack,
+                            locked_connected_state.send_next,
+                            locked_connected_state.receive_next,
+                            &chunk,
+                        );
+
+                        let peer_addr = state.udp_socket.peer_addr().unwrap();
+                        send_segment(state.udp_socket, peer_addr, &seg).await;
+
+                        locked_connected_state.send_next += chunk.len() as u32;
+                        locked_connected_state.buffer.push(seg);
+                    }
+                }
+                UserAction::Close => {
+                    unimplemented!()
                 }
             }
 
