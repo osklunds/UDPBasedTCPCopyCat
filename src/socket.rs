@@ -74,6 +74,8 @@ enum UserAction {
 struct ConnectedState {
     send_next: u32,
     receive_next: u32,
+    fin_sent: bool,
+    fin_received: bool,
     buffer: Vec<Segment>,
 }
 
@@ -143,6 +145,8 @@ impl Stream {
                 let state = ConnectedState {
                     send_next,
                     receive_next,
+                    fin_sent: false,
+                    fin_received: false,
                     buffer: Vec::new(),
                 };
 
@@ -543,8 +547,6 @@ async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
 
             match user_action {
                 UserAction::Shutdown => {
-                    // TODO: Send FIN
-
                     let seg = Segment::new_empty(
                         Fin,
                         locked_connected_state.send_next,
