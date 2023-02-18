@@ -11,6 +11,7 @@ use std::io::Result;
 use std::str;
 use std::sync::Arc;
 use std::thread;
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::segment::Kind::*;
@@ -60,6 +61,7 @@ struct ServerStream {
 struct ClientStream {
     read_rx: Receiver<Vec<u8>>,
     user_action_tx: Sender<UserAction>,
+    join_handle: JoinHandle<()>,
     state: Arc<Mutex<ConnectedState>>,
 }
 
@@ -148,7 +150,7 @@ impl Stream {
                 let state_in_arc = Arc::new(state_in_mutex);
                 let state_for_loop = Arc::clone(&state_in_arc);
 
-                thread::Builder::new()
+                let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
                         block_on(connected_loop(
@@ -163,6 +165,7 @@ impl Stream {
                 let client_stream = ClientStream {
                     read_rx,
                     user_action_tx,
+                    join_handle,
                     state: state_in_arc,
                 };
                 let inner_stream = InnerStream::Client(client_stream);
@@ -251,11 +254,16 @@ impl Stream {
         }
     }
 
-    pub fn disconnect(&mut self) {
-        // TODO: Instead of 0-length, make it a proper enum
+    pub fn shutdown(&mut self) {
         if let InnerStream::Client(client_stream) = &self.inner_stream {
             block_on(client_stream.user_action_tx.send(UserAction::Shutdown))
                 .unwrap();
+        }
+    }
+
+    pub fn wait_shutdown_complete(self) {
+        if let InnerStream::Client(client_stream) = self.inner_stream {
+            client_stream.join_handle.join();
         }
     }
 

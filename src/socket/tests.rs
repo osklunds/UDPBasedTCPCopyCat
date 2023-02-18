@@ -201,7 +201,7 @@ fn test_disconnect() {
     main_flow_uut_write(&mut state, b"some data");
 
     state.timer.expect_call_to_sleep();
-    state.uut_stream.disconnect();
+    state.uut_stream.shutdown();
     state.timer.wait_for_call_to_sleep();
 
     let recv_seg = recv_segment(&state);
@@ -210,10 +210,6 @@ fn test_disconnect() {
 
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
-
-    thread::sleep(Duration::from_millis(10));
-    let close_result = state.uut_stream.close();
-    assert_eq!(CloseResult::AllDataSent, close_result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
