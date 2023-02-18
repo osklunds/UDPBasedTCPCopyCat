@@ -275,7 +275,7 @@ impl Stream {
             CloseResult::AllDataSent
         }
     }
-X}
+}
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
