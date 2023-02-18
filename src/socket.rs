@@ -460,7 +460,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     assert_eq!(locked_connected_state.receive_next, seq_num);
     locked_connected_state.receive_next += len;
 
-    let restart_timer = handle_retransmissions_at_ack_recv(
+    let segments_remain = handle_retransmissions_at_ack_recv(
         ack_num,
         &mut locked_connected_state,
         &state,
@@ -473,15 +473,17 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         locked_connected_state.receive_next,
     );
 
-    drop(locked_connected_state);
-
-    if len == 0 {
-        RecvSocketResult::Continue(state, restart_timer)
+    if !segments_remain && locked_connected_state.fin_sent {
+        RecvSocketResult::Exit
+    } else if len == 0 {
+        drop(locked_connected_state);
+        RecvSocketResult::Continue(state, segments_remain)
     } else {
         send_segment(state.udp_socket, peer_addr, &ack).await;
 
+        drop(locked_connected_state);
         match state.read_tx.send(data).await {
-            Ok(()) => RecvSocketResult::Continue(state, restart_timer),
+            Ok(()) => RecvSocketResult::Continue(state, segments_remain),
             Err(_) => RecvSocketResult::Exit,
         }
     }
@@ -557,6 +559,8 @@ async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
                     send_segment(state.udp_socket, peer_addr, &seg).await;
 
                     locked_connected_state.buffer.push(seg);
+
+                    locked_connected_state.fin_sent = true;
                 }
                 UserAction::SendData(data) => {
                     for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
