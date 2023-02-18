@@ -91,13 +91,11 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     let timer = Arc::new(MockTimer::new());
     let timer_cloned = Arc::clone(&timer);
     let tc_addr = tc_socket.local_addr().unwrap();
-    let uut_stream = thread::Builder::new()
+    let join_handle = thread::Builder::new()
         .name("connect client".to_string())
         .spawn(move || {
             Stream::connect_custom_timer(timer_cloned, tc_addr).unwrap()
         })
-        .unwrap()
-        .join()
         .unwrap();
 
     // Receive SYN
@@ -115,6 +113,8 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     assert_eq!(Ack, ack.kind());
     tc_seq_num += 1;
     assert_eq!(tc_seq_num, ack.ack_num());
+
+    let uut_stream = join_handle.join().unwrap();
 
     State {
         tc_socket,
