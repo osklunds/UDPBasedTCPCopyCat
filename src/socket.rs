@@ -252,6 +252,11 @@ impl Stream {
         }
     }
 
+    // TODO: Add wait_close, that waits until done
+    // rename below force_close
+    // loop should return when buffer empty and FIN
+    // maybe call join on the join handle?
+
     pub fn close(&mut self) -> CloseResult {
         if let InnerStream::Client(client_stream) = &self.inner_stream {
             block_on(async {
@@ -270,7 +275,7 @@ impl Stream {
             CloseResult::AllDataSent
         }
     }
-}
+X}
 
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
