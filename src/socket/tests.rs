@@ -184,6 +184,9 @@ fn test_disconnect() {
     // When receive FIN, send FIN, then same as above
     // When all data has been read, return 0 length
     // close stops the process
+    // If close returns true, it means buffer emppty, include FIN
+    // so all data was received
+    // Perhaps also add a poll function to check if closing state
 
     let mut state = setup_connected_uut_client();
 
@@ -200,7 +203,9 @@ fn test_disconnect() {
 
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
-    // TOOD: Call close() and see that returns true
+
+    let close_result = state.uut_stream.close();
+    assert_eq!(CloseResult::AllDataSent, close_result);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

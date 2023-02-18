@@ -41,6 +41,12 @@ pub struct Stream {
     inner_stream: InnerStream,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum CloseResult {
+    AllDataSent,
+    DataRemaining,
+}
+
 enum InnerStream {
     Server(ServerStream),
     Client(ClientStream),
@@ -243,13 +249,13 @@ impl Stream {
         }
     }
 
-    pub fn close(&mut self) -> bool {
+    pub fn close(&mut self) -> CloseResult {
         if let InnerStream::Client(client_stream) = &self.inner_stream {
             // TODO: Return true iff buffer empty, and stop the process
             // and close the UDP socket
         }
 
-        true
+        CloseResult::AllDataSent
     }
 }
 
