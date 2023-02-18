@@ -270,6 +270,14 @@ impl Stream {
             client_stream.join_handle.join().unwrap();
         }
     }
+
+    pub fn close(self) {
+        if let InnerStream::Client(client_stream) = self.inner_stream {
+            block_on(client_stream.user_action_tx.send(UserAction::Close))
+                .unwrap();
+            client_stream.join_handle.join().unwrap();
+        }
+    }
 }
 
 impl ClientStream {
@@ -555,7 +563,8 @@ async fn recv_user_action_rx(state: RecvWriteRxState<'_>) -> RecvWriteRxResult {
                     }
                 }
                 UserAction::Close => {
-                    unimplemented!()
+                    // TODO: Avoid using early return
+                    return RecvWriteRxResult::Exit;
                 }
             }
 

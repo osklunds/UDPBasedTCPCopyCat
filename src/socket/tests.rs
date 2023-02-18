@@ -214,6 +214,16 @@ fn test_shutdown() {
     state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
 
+#[test]
+fn test_close() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data");
+
+    state.uut_stream.take().unwrap().close();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Alternative flow test cases
 ////////////////////////////////////////////////////////////////////////////////
