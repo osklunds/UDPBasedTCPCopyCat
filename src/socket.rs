@@ -131,28 +131,25 @@ impl Stream {
                     Self::client_handshake(&udp_socket).await
                 });
 
+                let state = ConnectedState {
+                    send_next,
+                    receive_next,
+                    buffer: Vec::new(),
+                };
+
+                let state_in_mutex = Mutex::new(state);
+                let state_in_arc = Arc::new(state_in_mutex);
+
                 thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        block_on(async {
-                            let state = ConnectedState {
-                                send_next,
-                                receive_next,
-                                buffer: Vec::new(),
-                            };
-
-                            let state_in_mutex = Mutex::new(state);
-                            let state_in_arc = Arc::new(state_in_mutex);
-
-                            connected_loop(
-                                timer,
-                                Arc::clone(&state_in_arc),
-                                udp_socket,
-                                read_tx,
-                                write_rx,
-                            )
-                            .await;
-                        })
+                        block_on(connected_loop(
+                            timer,
+                            Arc::clone(&state_in_arc),
+                            udp_socket,
+                            read_tx,
+                            write_rx,
+                        ))
                     })
                     .unwrap();
 
