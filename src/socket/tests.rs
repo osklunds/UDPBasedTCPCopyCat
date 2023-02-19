@@ -188,33 +188,9 @@ fn wait_shutdown_complete(mut state: State) {
 fn test_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
 
-    // tc sends FIN
-    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state, &send_seg);
-    state.tc_seq_num += 1;
-
-    // uut sends ACK to the FIN
-    let recv_ack_to_fin = recv_segment(&state);
-    let exp_ack_to_fin =
-        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_ack_to_fin, recv_ack_to_fin);
-
-    state.timer.expect_call_to_sleep();
-    state.uut_stream.as_mut().unwrap().shutdown();
-    state.timer.wait_for_call_to_sleep();
-
-    // uut sends FIN
-    let recv_seg = recv_segment(&state);
-    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_seg, recv_seg);
-
-    // tc sends ACK to the FIN
-    let ack_to_fin =
-        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
-    send_segment(&state, &ack_to_fin);
-    state.uut_seq_num += 1;
-
-    state.uut_stream.take().unwrap().wait_shutdown_complete();
+    main_flow_tc_shutdown(&mut state);
+    main_flow_uut_shutdown(&mut state);
+    wait_shutdown_complete(state);
 }
 
 #[test]
