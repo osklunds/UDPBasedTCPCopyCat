@@ -188,8 +188,43 @@ fn wait_shutdown_complete(mut state: State) {
 fn test_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
 
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
     main_flow_tc_shutdown(&mut state);
     main_flow_uut_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn test_shutdown_tc_before_uut_write_after_shutdown() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    main_flow_tc_shutdown(&mut state);
+
+    // tc side has sent FIN. But uut hasn't, so uut can still write
+    main_flow_uut_write(&mut state, b"some data");
+    main_flow_uut_shutdown(&mut state);
+
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn test_shutdown_uut_before_tc_read_after_shutdown() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    // uut side has sent FIN. But tc hasn't, so tc can still write and uut can
+    // read
+    main_flow_uut_shutdown(&mut state);
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_tc_shutdown(&mut state);
+
     wait_shutdown_complete(state);
 }
 
