@@ -78,7 +78,7 @@ use crate::segment::Segment;
 #[test]
 fn test_connect_shutdown() {
     let state = setup_connected_uut_client();
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 fn setup_connected_uut_client() -> State {
@@ -138,7 +138,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 // If close returns true, it means buffer emppty, include FIN
 // so all data was received
 // Perhaps also add a poll function to check if closing state
-fn uut_shutdown(mut state: State) {
+fn shutdown(mut state: State) {
     // To make sure the buffer is empty so that a new timer call
     // will be made
     thread::sleep(Duration::from_millis(1));
@@ -173,25 +173,34 @@ fn uut_shutdown(mut state: State) {
 }
 
 #[test]
-fn test_uut_shutdown_before_peer() {
+fn test_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
+
+    // tc sends FIN
+    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_seg);
+    state.tc_seq_num += 1;
+
+    // uut sends ACK to the FIN
+    let recv_ack_to_fin = recv_segment(&state);
+    let exp_ack_to_fin =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_ack_to_fin, recv_ack_to_fin);
 
     state.timer.expect_call_to_sleep();
     state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
 
-    // uut says finished by sending FIN
-    // TODO: increase ack num for FIN
+    // uut sends FIN
     let recv_seg = recv_segment(&state);
     let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_seg, recv_seg);
 
-    // tc sends some data after FIN
-    main_flow_uut_read(&mut state, b"some data");
-
-    // But then tc also sends FIN
-    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state, &send_seg);
+    // tc sends ACK to the FIN
+    let ack_to_fin =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
+    send_segment(&state, &ack_to_fin);
+    state.uut_seq_num += 1;
 
     state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
@@ -212,7 +221,7 @@ fn test_client_read_once() {
 
     main_flow_uut_read(&mut state, b"some data");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -230,7 +239,7 @@ fn test_client_read_multiple_times() {
     main_flow_uut_read(&mut state, b"ninth ertwrw");
     main_flow_uut_read(&mut state, b"tenth uhfsdghsu");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -239,7 +248,7 @@ fn test_client_write_once() {
 
     main_flow_uut_write(&mut state, b"some data");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -257,7 +266,7 @@ fn test_client_write_multiple_times() {
     main_flow_uut_write(&mut state, b"ninth asfaerger");
     main_flow_uut_write(&mut state, b"tenth trehjk");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -272,7 +281,7 @@ fn test_client_reads_and_writes() {
     main_flow_uut_read(&mut state, b"sixth");
     main_flow_uut_write(&mut state, b"seventh");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -309,7 +318,7 @@ fn test_client_write_retransmit_due_to_timeout() {
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
     send_segment(&state, &ack);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -372,7 +381,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
 
     send_segment(&state, &ack3);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -425,7 +434,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
     );
     send_segment(&state, &send_ack2);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -463,7 +472,7 @@ fn test_first_segment_acked_but_not_second() {
     );
     send_segment(&state, &ack2);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -487,7 +496,7 @@ fn test_cumulative_ack() {
 
     send_segment(&state, &ack);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -535,7 +544,7 @@ fn test_multi_segment_write() {
 
     send_segment(&state, &ack);
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 #[test]
@@ -551,7 +560,7 @@ fn test_same_segment_carries_data_and_acks() {
     // Then send some data from tc, without first sending a separate ACK
     main_flow_uut_read(&mut state, b"some other data");
 
-    uut_shutdown(state);
+    shutdown(state);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

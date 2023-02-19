@@ -445,7 +445,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     if locked_connected_state.fin_received {
         // If FIN has been received, the peer shouldn't send anything
         // new
-        assert!(locked_connected_state.receive_next > seq_num);
+        assert!(locked_connected_state.receive_next >= seq_num);
     }
 
     let (send_ack_needed, data_received) = if segment.kind() == Fin {
