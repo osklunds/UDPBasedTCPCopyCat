@@ -141,8 +141,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 fn shutdown(mut state: State) {
     main_flow_uut_shutdown(&mut state);
     main_flow_tc_shutdown(&mut state);
-
-    state.uut_stream.take().unwrap().wait_shutdown_complete();
+    wait_shutdown_complete(state);
 }
 
 fn main_flow_uut_shutdown(state: &mut State) {
@@ -179,6 +178,10 @@ fn main_flow_tc_shutdown(state: &mut State) {
     let exp_ack_to_fin =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_ack_to_fin, recv_ack_to_fin);
+}
+
+fn wait_shutdown_complete(mut state: State) {
+    state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
 
 #[test]
