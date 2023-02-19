@@ -435,12 +435,17 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     // The segment should contain the next expected data
     assert_eq!(locked_connected_state.receive_next, segment.seq_num());
 
+    // TODO: Test the below. Not incorrect to receive double FIN
+    assert!(!(locked_connected_state.fin_received && segment.kind() == Fin));
+    locked_connected_state.fin_received |= segment.kind() == Fin;
+
     let ack_num = segment.ack_num();
     let seq_num = segment.seq_num();
     let data = segment.to_data();
     let len = data.len() as u32;
 
     // TODO: If segment.seq_num doesn't match state.receive_next, disacrd it
+    // Or maybe not discard, but do what TCP would do
     assert_eq!(locked_connected_state.receive_next, seq_num);
     locked_connected_state.receive_next += len;
 
@@ -457,7 +462,10 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         locked_connected_state.receive_next,
     );
 
-    if !segments_remain && locked_connected_state.fin_sent {
+    if !segments_remain
+        && locked_connected_state.fin_sent
+        && locked_connected_state.fin_received
+    {
         RecvSocketResult::Exit
     } else if len == 0 {
         drop(locked_connected_state);

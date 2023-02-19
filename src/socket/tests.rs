@@ -146,10 +146,35 @@ fn uut_shutdown(mut state: State) {
     state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
 
+    // TODO: Check that write fails and read returns 0
     let recv_seg = recv_segment(&state);
     let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_seg, recv_seg);
 
+    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_seg);
+
+    state.uut_stream.take().unwrap().wait_shutdown_complete();
+}
+
+#[test]
+fn test_uut_shutdown_before_peer() {
+    let mut state = setup_connected_uut_client();
+
+    state.timer.expect_call_to_sleep();
+    state.uut_stream.as_mut().unwrap().shutdown();
+    state.timer.wait_for_call_to_sleep();
+
+    // uut says finished by sending FIN
+    // TODO: increase ack num for FIN
+    let recv_seg = recv_segment(&state);
+    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_seg, recv_seg);
+
+    // tc sends some data after FIN
+    main_flow_uut_read(&mut state, b"some data");
+
+    // But then tc also sends FIN
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
 
