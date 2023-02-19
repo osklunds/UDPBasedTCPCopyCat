@@ -81,109 +81,6 @@ fn test_connect_shutdown() {
     shutdown(state);
 }
 
-fn setup_connected_uut_client() -> State {
-    let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let tc_socket = UdpSocket::bind(tc_addr).unwrap();
-    tc_socket
-        .set_read_timeout(Some(Duration::from_millis(5)))
-        .unwrap();
-
-    uut_connect(tc_socket)
-}
-
-fn uut_connect(tc_socket: UdpSocket) -> State {
-    // Connect
-    let timer = Arc::new(MockTimer::new());
-    let timer_cloned = Arc::clone(&timer);
-    let tc_addr = tc_socket.local_addr().unwrap();
-    let join_handle = thread::Builder::new()
-        .name("connect client".to_string())
-        .spawn(move || {
-            Stream::connect_custom_timer(timer_cloned, tc_addr).unwrap()
-        })
-        .unwrap();
-
-    // Receive SYN
-    let (syn, uut_addr) = recv_segment_with_addr(&tc_socket);
-    assert_eq!(Syn, syn.kind());
-
-    // Send SYN-ACK
-    let mut tc_seq_num = rand::random();
-    let uut_seq_num = syn.seq_num() + 1;
-    let syn_ack = Segment::new_empty(SynAck, tc_seq_num, uut_seq_num);
-    send_segment_to(&tc_socket, uut_addr, &syn_ack);
-
-    // Receive ACK
-    let ack = recv_segment_from(&tc_socket, uut_addr);
-    assert_eq!(Ack, ack.kind());
-    tc_seq_num += 1;
-    assert_eq!(tc_seq_num, ack.ack_num());
-
-    let uut_stream = join_handle.join().unwrap();
-
-    State {
-        tc_socket,
-        uut_stream: Some(uut_stream),
-        uut_addr,
-        tc_seq_num,
-        uut_seq_num,
-        timer,
-    }
-}
-
-// Disconnect should send FIN, not accept more writes
-// When receive FIN, send FIN, then same as above
-// When all data has been read, return 0 length
-// close stops the process
-// If close returns true, it means buffer emppty, include FIN
-// so all data was received
-// Perhaps also add a poll function to check if closing state
-fn shutdown(mut state: State) {
-    main_flow_uut_shutdown(&mut state);
-    main_flow_tc_shutdown(&mut state);
-    wait_shutdown_complete(state);
-}
-
-fn main_flow_uut_shutdown(state: &mut State) {
-    // To make sure the buffer is empty so that a new timer call
-    // will be made
-    thread::sleep(Duration::from_millis(1));
-
-    state.timer.expect_call_to_sleep();
-    state.uut_stream.as_mut().unwrap().shutdown();
-    state.timer.wait_for_call_to_sleep();
-
-    // TODO: Check that write fails
-    // uut sends FIN
-    let recv_seg = recv_segment(&state);
-    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_seg, recv_seg);
-
-    // tc sends ACK to the FIN
-    let ack_to_fin =
-        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
-    send_segment(&state, &ack_to_fin);
-    state.uut_seq_num += 1;
-}
-
-fn main_flow_tc_shutdown(state: &mut State) {
-    // TODO: Check that read returns 0
-    // tc sends FIN
-    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state, &send_seg);
-    state.tc_seq_num += 1;
-
-    // uut sends ACK to the FIN
-    let recv_ack_to_fin = recv_segment(&state);
-    let exp_ack_to_fin =
-        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_ack_to_fin, recv_ack_to_fin);
-}
-
-fn wait_shutdown_complete(mut state: State) {
-    state.uut_stream.take().unwrap().wait_shutdown_complete();
-}
-
 #[test]
 fn test_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
@@ -606,6 +503,109 @@ impl Drop for State {
         recv_check_no_data(&mut self.tc_socket);
         assert!(self.uut_stream.is_none());
     }
+}
+
+fn setup_connected_uut_client() -> State {
+    let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let tc_socket = UdpSocket::bind(tc_addr).unwrap();
+    tc_socket
+        .set_read_timeout(Some(Duration::from_millis(5)))
+        .unwrap();
+
+    uut_connect(tc_socket)
+}
+
+fn uut_connect(tc_socket: UdpSocket) -> State {
+    // Connect
+    let timer = Arc::new(MockTimer::new());
+    let timer_cloned = Arc::clone(&timer);
+    let tc_addr = tc_socket.local_addr().unwrap();
+    let join_handle = thread::Builder::new()
+        .name("connect client".to_string())
+        .spawn(move || {
+            Stream::connect_custom_timer(timer_cloned, tc_addr).unwrap()
+        })
+        .unwrap();
+
+    // Receive SYN
+    let (syn, uut_addr) = recv_segment_with_addr(&tc_socket);
+    assert_eq!(Syn, syn.kind());
+
+    // Send SYN-ACK
+    let mut tc_seq_num = rand::random();
+    let uut_seq_num = syn.seq_num() + 1;
+    let syn_ack = Segment::new_empty(SynAck, tc_seq_num, uut_seq_num);
+    send_segment_to(&tc_socket, uut_addr, &syn_ack);
+
+    // Receive ACK
+    let ack = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(Ack, ack.kind());
+    tc_seq_num += 1;
+    assert_eq!(tc_seq_num, ack.ack_num());
+
+    let uut_stream = join_handle.join().unwrap();
+
+    State {
+        tc_socket,
+        uut_stream: Some(uut_stream),
+        uut_addr,
+        tc_seq_num,
+        uut_seq_num,
+        timer,
+    }
+}
+
+// Disconnect should send FIN, not accept more writes
+// When receive FIN, send FIN, then same as above
+// When all data has been read, return 0 length
+// close stops the process
+// If close returns true, it means buffer emppty, include FIN
+// so all data was received
+// Perhaps also add a poll function to check if closing state
+fn shutdown(mut state: State) {
+    main_flow_uut_shutdown(&mut state);
+    main_flow_tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+fn main_flow_uut_shutdown(state: &mut State) {
+    // To make sure the buffer is empty so that a new timer call
+    // will be made
+    thread::sleep(Duration::from_millis(1));
+
+    state.timer.expect_call_to_sleep();
+    state.uut_stream.as_mut().unwrap().shutdown();
+    state.timer.wait_for_call_to_sleep();
+
+    // TODO: Check that write fails
+    // uut sends FIN
+    let recv_seg = recv_segment(&state);
+    let exp_seg = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_seg, recv_seg);
+
+    // tc sends ACK to the FIN
+    let ack_to_fin =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
+    send_segment(&state, &ack_to_fin);
+    state.uut_seq_num += 1;
+}
+
+fn main_flow_tc_shutdown(state: &mut State) {
+    // TODO: Check that read returns 0
+    // tc sends FIN
+    let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_seg);
+    state.tc_seq_num += 1;
+
+    // uut sends ACK to the FIN
+    let recv_ack_to_fin = recv_segment(&state);
+    let exp_ack_to_fin =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+    assert_eq!(exp_ack_to_fin, recv_ack_to_fin);
+}
+
+fn wait_shutdown_complete(mut state: State) {
+    state.uut_stream.take().unwrap().wait_shutdown_complete();
 }
 
 fn main_flow_uut_read(state: &mut State, data: &[u8]) {
