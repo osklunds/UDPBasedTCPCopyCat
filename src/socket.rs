@@ -435,19 +435,35 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     // The segment should contain the next expected data
     assert_eq!(locked_connected_state.receive_next, segment.seq_num());
 
-    // TODO: Test the below. Not incorrect to receive double FIN
-    assert!(!(locked_connected_state.fin_received && segment.kind() == Fin));
-    locked_connected_state.fin_received |= segment.kind() == Fin;
-
     let ack_num = segment.ack_num();
     let seq_num = segment.seq_num();
-    let data = segment.to_data();
-    let len = data.len() as u32;
 
     // TODO: If segment.seq_num doesn't match state.receive_next, disacrd it
     // Or maybe not discard, but do what TCP would do
     assert_eq!(locked_connected_state.receive_next, seq_num);
-    locked_connected_state.receive_next += len;
+
+    if locked_connected_state.fin_received {
+        // If FIN has been received, the peer shouldn't send anything
+        // new
+        assert!(locked_connected_state.receive_next > seq_num);
+    }
+
+    let (send_ack_needed, data_received) = if segment.kind() == Fin {
+        // TODO: Test the below. Not incorrect to receive double FIN
+        assert!(!locked_connected_state.fin_received);
+        locked_connected_state.fin_received |= segment.kind() == Fin;
+        locked_connected_state.receive_next += 1;
+        (true, None)
+    } else {
+        let data = segment.to_data();
+        let len = data.len() as u32;
+        locked_connected_state.receive_next += len;
+        if len > 0 {
+            (true, Some(data))
+        } else {
+            (false, None)
+        }
+    };
 
     let segments_remain = handle_retransmissions_at_ack_recv(
         ack_num,
@@ -456,28 +472,30 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     )
     .await;
 
-    let ack = Segment::new_empty(
-        Ack,
-        locked_connected_state.send_next,
-        locked_connected_state.receive_next,
-    );
+    if send_ack_needed {
+        let ack = Segment::new_empty(
+            Ack,
+            locked_connected_state.send_next,
+            locked_connected_state.receive_next,
+        );
+        send_segment(state.udp_socket, peer_addr, &ack).await;
+    }
 
     if !segments_remain
         && locked_connected_state.fin_sent
         && locked_connected_state.fin_received
     {
         RecvSocketResult::Exit
-    } else if len == 0 {
+    } else if let Some(data_received) = data_received {
         drop(locked_connected_state);
-        RecvSocketResult::Continue(state, segments_remain)
-    } else {
-        send_segment(state.udp_socket, peer_addr, &ack).await;
-
-        drop(locked_connected_state);
-        match state.read_tx.send(data).await {
+        // TODO: What if retransmission? Need to check for that
+        match state.read_tx.send(data_received).await {
             Ok(()) => RecvSocketResult::Continue(state, segments_remain),
             Err(_) => RecvSocketResult::Exit,
         }
+    } else {
+        drop(locked_connected_state);
+        RecvSocketResult::Continue(state, segments_remain)
     }
 }
 
@@ -552,6 +570,7 @@ async fn recv_user_action_rx(
                     let peer_addr = state.udp_socket.peer_addr().unwrap();
                     send_segment(state.udp_socket, peer_addr, &seg).await;
 
+                    locked_connected_state.send_next += 1;
                     locked_connected_state.buffer.push(seg);
 
                     locked_connected_state.fin_sent = true;
