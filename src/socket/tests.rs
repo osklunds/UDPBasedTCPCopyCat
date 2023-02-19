@@ -68,6 +68,7 @@ use crate::segment::Segment;
 // - shutdown one side at a time
 // - shutdown an retransmissions one side at a time
 // - close causes segment to be lost
+// - one segment is missed, second arrives. i.e. receive side buffering
 
 // TODO: Put Main/alternative/expcetional in separate files instead
 ////////////////////////////////////////////////////////////////////////////////
