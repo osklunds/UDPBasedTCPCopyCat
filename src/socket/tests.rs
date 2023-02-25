@@ -608,7 +608,10 @@ fn main_flow_uut_shutdown(state: &mut State) {
     state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
 
-    // TODO: Check that write fails
+    // Write fails
+    let write_result = state.uut_stream.as_mut().unwrap().write(b"some data");
+    assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
+
     // uut sends FIN
     let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&exp_fin, &state);

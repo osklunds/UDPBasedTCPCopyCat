@@ -8,7 +8,7 @@ use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
 use std::collections::BTreeMap;
-use std::io::Result;
+use std::io::{Error, ErrorKind, Result};
 use std::str;
 use std::sync::Arc;
 use std::thread;
@@ -65,6 +65,7 @@ struct ClientStream {
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
     state: Arc<Mutex<ConnectedState>>,
+    shutdown_sent: bool,
 }
 
 enum UserAction {
@@ -175,6 +176,7 @@ impl Stream {
                     user_action_tx,
                     join_handle,
                     state: state_in_arc,
+                    shutdown_sent: false,
                 };
                 let inner_stream = InnerStream::Client(client_stream);
                 let stream = Stream { inner_stream };
@@ -263,7 +265,8 @@ impl Stream {
     }
 
     pub fn shutdown(&mut self) {
-        if let InnerStream::Client(client_stream) = &self.inner_stream {
+        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
+            client_stream.shutdown_sent = true;
             block_on(client_stream.user_action_tx.send(UserAction::Shutdown))
                 .unwrap();
         }
@@ -287,9 +290,15 @@ impl Stream {
 impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() > 0);
-        block_on(self.user_action_tx.send(UserAction::SendData(buf.to_vec())))
+        if self.shutdown_sent {
+            Err(Error::new(ErrorKind::NotConnected, "Not connected"))
+        } else {
+            block_on(
+                self.user_action_tx.send(UserAction::SendData(buf.to_vec())),
+            )
             .unwrap();
-        Ok(buf.len())
+            Ok(buf.len())
+        }
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
