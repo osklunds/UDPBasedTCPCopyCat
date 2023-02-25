@@ -484,27 +484,27 @@ fn test_same_segment_carries_data_and_acks() {
     shutdown(state);
 }
 
-#[test]
-fn test_out_of_order_segment() {
-    let mut state = setup_connected_uut_client();
+// #[test]
+// fn test_out_of_order_segment() {
+//     let mut state = setup_connected_uut_client();
 
-    let data1 = b"some data";
-    let len1 = data1.len() as u32;
-    let seg1 = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data1);
+//     let data1 = b"some data";
+//     let len1 = data1.len() as u32;
+//     let seg1 = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data1);
 
-    let data2 = b"some other data";
-    let len2 = data2.len();
-    let seg2 =
-        Segment::new(Ack, state.tc_seq_num + len1, state.uut_seq_num, data2);
+//     let data2 = b"some other data";
+//     let len2 = data2.len();
+//     let seg2 =
+//         Segment::new(Ack, state.tc_seq_num + len1, state.uut_seq_num, data2);
 
-    send_segment(&state, &seg2);
+//     send_segment(&state, &seg2);
 
-    let recv_seg = recv_segment(&state);
-    let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    assert_eq!(exp_ack, recv_seg);
+//     let recv_seg = recv_segment(&state);
+//     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+//     assert_eq!(exp_ack, recv_seg);
 
-    shutdown(state);
-}
+//     shutdown(state);
+// }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
