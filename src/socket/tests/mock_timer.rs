@@ -63,7 +63,7 @@ impl MockTimer {
         });
     }
 
-    fn test_end_check(&self) {
+    pub fn test_end_check(&self) {
         block_on(async {
             // First check that the TC hasn't expected any sleep that hasn't
             // been executed yet
@@ -94,11 +94,5 @@ impl Timer for MockTimer {
 
         self.sleep_called_tx.try_send(()).unwrap();
         self.let_sleep_return_rx.recv().await.unwrap();
-    }
-}
-
-impl Drop for MockTimer {
-    fn drop(&mut self) {
-        self.test_end_check();
     }
 }

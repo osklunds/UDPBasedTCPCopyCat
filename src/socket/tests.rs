@@ -134,6 +134,7 @@ fn test_close() {
     main_flow_uut_write(&mut state, b"some data");
 
     state.uut_stream.take().unwrap().close();
+    test_end_check(&mut state);
 }
 
 #[test]
@@ -513,6 +514,7 @@ fn test_out_of_order_segment() {
         state.uut_seq_num,
         state.tc_seq_num + len1 + len2,
     );
+
     assert_eq!(exp_ack_all, recv_seg2);
 
     state.tc_seq_num += len1 + len2;
@@ -533,13 +535,12 @@ struct State {
     timer: Arc<MockTimer>,
 }
 
-impl Drop for State {
-    fn drop(&mut self) {
-        // To catch late calls to the timer
-        std::thread::sleep(Duration::from_millis(1));
-        recv_check_no_data(&mut self.tc_socket);
-        assert!(self.uut_stream.is_none());
-    }
+fn test_end_check(state: &mut State) {
+    // To catch late calls to the timer
+    std::thread::sleep(Duration::from_millis(1));
+    recv_check_no_data(&mut state.tc_socket);
+    assert!(state.uut_stream.is_none());
+    state.timer.test_end_check();
 }
 
 fn setup_connected_uut_client() -> State {
@@ -643,6 +644,7 @@ fn main_flow_tc_shutdown(state: &mut State) {
 
 fn wait_shutdown_complete(mut state: State) {
     state.uut_stream.take().unwrap().wait_shutdown_complete();
+    test_end_check(&mut state);
 }
 
 fn main_flow_uut_read(state: &mut State, data: &[u8]) {
