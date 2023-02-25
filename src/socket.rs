@@ -433,6 +433,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     let ack_num = segment.ack_num();
     let seq_num = segment.seq_num();
     let len = segment.data().len() as u32;
+    let kind = segment.kind();
 
     let mut locked_connected_state = state.connected_state.lock().await;
 
@@ -455,29 +456,18 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     .await;
 
     // Receiver side logic
-    let should_continue = if seq_num > locked_connected_state.receive_next {
-        unimplemented!();
+    assert!(kind == Fin || kind == Ack);
+    if kind == Ack && len == 0 {
+        // Do nothing for a pure ACK
     } else if seq_num < locked_connected_state.receive_next {
-        // Do nothing
-        unimplemented!();
-    } else if segment.kind() == Fin {
-        // TODO: Test the below. Not incorrect to receive double FIN
-        assert!(!locked_connected_state.fin_received);
-        locked_connected_state.fin_received |= segment.kind() == Fin;
-        locked_connected_state.receive_next += 1;
-        send_ack(&state, &mut locked_connected_state, peer_addr).await;
-        true
-    } else if len == 0 {
-        true
+        // Ignore if too old
     } else {
-        locked_connected_state.receive_next += len;
-        send_ack(&state, &mut locked_connected_state, peer_addr).await;
-        let data = segment.to_data();
-        match state.read_tx.send(data).await {
-            Ok(()) => true,
-            Err(_) => false,
-        }
-    };
+        add_to_recv_buffer(&mut locked_connected_state.recv_buffer, segment);
+    }
+
+    let should_continue =
+        process_recv_buffer(&state, &mut locked_connected_state, peer_addr)
+            .await;
 
     if locked_connected_state.buffer.is_empty()
         && locked_connected_state.fin_sent
@@ -532,6 +522,62 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
             break;
         }
     }
+}
+
+fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
+    buffer.insert(segment.seq_num(), segment);
+    if buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
+        buffer.pop_last();
+    }
+}
+
+async fn process_recv_buffer(
+    state: &RecvSocketState<'_>,
+    locked_connected_state: &mut LockedConnectedState<'_>,
+    peer_addr: SocketAddr,
+) -> bool {
+    if let Some((seq_num, first_segment)) =
+        locked_connected_state.recv_buffer.pop_first()
+    {
+        assert_eq!(seq_num, first_segment.seq_num());
+        let len = first_segment.data().len() as u32;
+        assert!(seq_num >= locked_connected_state.receive_next);
+        if seq_num == locked_connected_state.receive_next {
+            if first_segment.kind() == Fin {
+                assert!(len == 0);
+
+                // TODO: Test the below. Not incorrect to receive double FIN
+                assert!(!locked_connected_state.fin_received);
+                locked_connected_state.fin_received = true;
+                locked_connected_state.receive_next += 1;
+                send_ack(state, locked_connected_state, peer_addr).await;
+            } else {
+                assert!(len > 0);
+                assert!(first_segment.kind() == Ack);
+
+                locked_connected_state.receive_next += len;
+                // TODO: Only send ack once in the end
+                send_ack(state, locked_connected_state, peer_addr).await;
+                let data = first_segment.to_data();
+                match state.read_tx.send(data).await {
+                    Ok(()) => {
+                        // process_recv_buffer(
+                        //     state,
+                        //     locked_connected_state,
+                        //     peer_addr,
+                        // ).await;
+                    }
+                    Err(_) => return false,
+                }
+            }
+        } else {
+            locked_connected_state
+                .recv_buffer
+                .insert(seq_num, first_segment);
+        }
+    }
+
+    true
 }
 
 async fn send_ack(
