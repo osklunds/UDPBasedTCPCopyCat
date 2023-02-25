@@ -540,45 +540,44 @@ async fn process_recv_buffer(
     locked_connected_state: &mut LockedConnectedState<'_>,
     peer_addr: SocketAddr,
 ) -> bool {
-    if let Some((seq_num, first_segment)) =
-        locked_connected_state.recv_buffer.pop_first()
-    {
-        assert_eq!(seq_num, first_segment.seq_num());
-        let len = first_segment.data().len() as u32;
-        assert!(seq_num >= locked_connected_state.receive_next);
-        if seq_num == locked_connected_state.receive_next {
-            if first_segment.kind() == Fin {
-                assert!(len == 0);
+    loop {
+        if let Some((seq_num, first_segment)) =
+            locked_connected_state.recv_buffer.pop_first()
+        {
+            assert_eq!(seq_num, first_segment.seq_num());
+            let len = first_segment.data().len() as u32;
+            assert!(seq_num >= locked_connected_state.receive_next);
+            if seq_num == locked_connected_state.receive_next {
+                if first_segment.kind() == Fin {
+                    assert!(len == 0);
 
-                // TODO: Test the below. Not incorrect to receive double FIN
-                assert!(!locked_connected_state.fin_received);
-                locked_connected_state.fin_received = true;
-                locked_connected_state.receive_next += 1;
-            } else {
-                assert!(len > 0);
-                assert!(first_segment.kind() == Ack);
+                    // TODO: Test the below. Not incorrect to receive double FIN
+                    assert!(!locked_connected_state.fin_received);
+                    locked_connected_state.fin_received = true;
+                    locked_connected_state.receive_next += 1;
 
-                locked_connected_state.receive_next += len;
-                let data = first_segment.to_data();
-                match state.read_tx.send(data).await {
-                    Ok(()) => {
-                        // process_recv_buffer(
-                        //     state,
-                        //     locked_connected_state,
-                        //     peer_addr,
-                        // ).await;
+                    // TODO: Send EOF on read_tx
+                } else {
+                    assert!(len > 0);
+                    assert!(first_segment.kind() == Ack);
+
+                    locked_connected_state.receive_next += len;
+                    let data = first_segment.to_data();
+                    match state.read_tx.send(data).await {
+                        Ok(()) => (),
+                        Err(_) => return false,
                     }
-                    Err(_) => return false,
                 }
+            } else {
+                locked_connected_state
+                    .recv_buffer
+                    .insert(seq_num, first_segment);
+                return true;
             }
         } else {
-            locked_connected_state
-                .recv_buffer
-                .insert(seq_num, first_segment);
+            return true;
         }
     }
-
-    true
 }
 
 async fn send_ack(

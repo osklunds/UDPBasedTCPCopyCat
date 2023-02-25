@@ -493,15 +493,29 @@ fn test_out_of_order_segment() {
     let seg1 = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data1);
 
     let data2 = b"some other data";
-    let len2 = data2.len();
+    let len2 = data2.len() as u32;
     let seg2 =
         Segment::new(Ack, state.tc_seq_num + len1, state.uut_seq_num, data2);
 
     send_segment(&state, &seg2);
 
+    // ACK for the data before seg1 received
     let recv_seg = recv_segment(&state);
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     assert_eq!(exp_ack, recv_seg);
+
+    send_segment(&state, &seg1);
+
+    // But when the gap is filled, the ACK acks everything sent
+    let recv_seg2 = recv_segment(&state);
+    let exp_ack_all = Segment::new_empty(
+        Ack,
+        state.uut_seq_num,
+        state.tc_seq_num + len1 + len2,
+    );
+    assert_eq!(exp_ack_all, recv_seg2);
+
+    state.tc_seq_num += len1 + len2;
 
     shutdown(state);
 }
