@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
+use std::collections::BTreeMap;
 use std::io::Result;
 use std::str;
 use std::sync::Arc;
@@ -78,7 +79,7 @@ struct ConnectedState {
     fin_sent: bool,
     fin_received: bool,
     buffer: Vec<Segment>,
-    recv_buffer: Vec<Segment>,
+    recv_buffer: BTreeMap<u32, Segment>,
 }
 
 type LockedConnectedState<'a> = MutexGuard<'a, ConnectedState>;
@@ -150,7 +151,7 @@ impl Stream {
                     fin_sent: false,
                     fin_received: false,
                     buffer: Vec::new(),
-                    recv_buffer: Vec::new(),
+                    recv_buffer: BTreeMap::new(),
                 };
 
                 let state_in_mutex = Mutex::new(state);
