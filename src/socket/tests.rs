@@ -506,11 +506,9 @@ fn test_out_of_order_segment() {
 
     state.tc_seq_num += len1 + len2;
 
-    let read_data1 =
-        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
+    let read_data1 = read_uut_stream_once(&mut state);
     assert_eq!(data1.to_vec(), read_data1);
-    let read_data2 =
-        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
+    let read_data2 = read_uut_stream_once(&mut state);
     assert_eq!(data2.to_vec(), read_data2);
 
     shutdown(state);
@@ -651,14 +649,13 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     expect_segment(&exp_ack, &state);
 
     // Check that the uut received the correct data
-    let read_data =
-        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
+    let read_data = read_uut_stream_once(state);
     assert_eq!(data, read_data);
 }
 
-fn read_uut_stream_once(stream: &mut Stream) -> Vec<u8> {
+fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
     let mut buf = [0; 4096];
-    let amt = stream.read(&mut buf).unwrap();
+    let amt = state.uut_stream.as_mut().unwrap().read(&mut buf).unwrap();
     buf[0..amt].to_vec()
 }
 
