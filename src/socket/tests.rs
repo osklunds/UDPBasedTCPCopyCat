@@ -492,6 +492,8 @@ fn test_out_of_order_segment() {
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&exp_ack, &state);
 
+    // TODO: Check that uut read fails
+
     send_segment(&state, &seg1);
 
     // But when the gap is filled, the ACK acks everything sent
@@ -503,6 +505,13 @@ fn test_out_of_order_segment() {
     expect_segment(&exp_ack_all, &state);
 
     state.tc_seq_num += len1 + len2;
+
+    let read_data1 =
+        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
+    assert_eq!(data1.to_vec(), read_data1);
+    let read_data2 =
+        read_uut_stream_once(&mut state.uut_stream.as_mut().unwrap());
+    assert_eq!(data2.to_vec(), read_data2);
 
     shutdown(state);
 }
@@ -526,6 +535,7 @@ fn test_end_check(state: &mut State) {
     recv_check_no_data(&mut state.tc_socket);
     assert!(state.uut_stream.is_none());
     state.timer.test_end_check();
+    // TODO: Check that no data can be read
 }
 
 fn setup_connected_uut_client() -> State {
