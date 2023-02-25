@@ -466,8 +466,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     }
 
     let should_continue =
-        process_recv_buffer(&state, &mut locked_connected_state, peer_addr)
-            .await;
+        process_recv_buffer(&state, &mut locked_connected_state).await;
 
     if len > 0 || kind == Fin {
         send_ack(&state, &mut locked_connected_state, peer_addr).await;
@@ -538,7 +537,6 @@ fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
 async fn process_recv_buffer(
     state: &RecvSocketState<'_>,
     locked_connected_state: &mut LockedConnectedState<'_>,
-    peer_addr: SocketAddr,
 ) -> bool {
     loop {
         if let Some((seq_num, first_segment)) =
