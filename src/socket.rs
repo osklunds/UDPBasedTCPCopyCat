@@ -469,6 +469,10 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         process_recv_buffer(&state, &mut locked_connected_state, peer_addr)
             .await;
 
+    if len > 0 || kind == Fin {
+        send_ack(&state, &mut locked_connected_state, peer_addr).await;
+    }
+
     if locked_connected_state.buffer.is_empty()
         && locked_connected_state.fin_sent
         && locked_connected_state.fin_received
@@ -550,14 +554,11 @@ async fn process_recv_buffer(
                 assert!(!locked_connected_state.fin_received);
                 locked_connected_state.fin_received = true;
                 locked_connected_state.receive_next += 1;
-                send_ack(state, locked_connected_state, peer_addr).await;
             } else {
                 assert!(len > 0);
                 assert!(first_segment.kind() == Ack);
 
                 locked_connected_state.receive_next += len;
-                // TODO: Only send ack once in the end
-                send_ack(state, locked_connected_state, peer_addr).await;
                 let data = first_segment.to_data();
                 match state.read_tx.send(data).await {
                     Ok(()) => {
