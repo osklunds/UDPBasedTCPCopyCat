@@ -418,10 +418,7 @@ fn test_multi_segment_write() {
     // Generate some long data to write
     let len = MAXIMUM_SEGMENT_SIZE + 10 + rand::random::<u32>() % 100;
     assert!(len < MAXIMUM_SEGMENT_SIZE * 2);
-    let mut data: Vec<u8> = Vec::new();
-    for _ in 0..len {
-        data.push(rand::random());
-    }
+    let data = random_data_of_length(len);
 
     // Send from uut
     state.timer.expect_call_to_sleep();
@@ -455,6 +452,14 @@ fn test_multi_segment_write() {
     send_segment(&state, &ack);
 
     shutdown(state);
+}
+
+fn random_data_of_length(length: u32) -> Vec<u8> {
+    let mut data: Vec<u8> = Vec::new();
+    for _ in 0..length {
+        data.push(rand::random());
+    }
+    data
 }
 
 #[test]
@@ -514,6 +519,87 @@ fn test_out_of_order_segment() {
     shutdown(state);
 }
 
+#[test]
+fn test_multiple_out_of_order_segments() {
+    let mut state = setup_connected_uut_client();
+
+    let mut segments = Vec::new();
+    let len = 10;
+
+    for segment_index in 0..9 {
+        let data = random_data_of_length(len);
+        let accumlative_len = segment_index * len;
+        let seg = Segment::new(
+            Ack,
+            state.tc_seq_num + accumlative_len,
+            state.uut_seq_num,
+            &data,
+        );
+        segments.push(seg);
+    }
+
+    let ack_base = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+
+    // TODO: Make arg order consistent
+    // |  2      |
+    send_segment(&state, &segments[2]);
+    expect_segment(&ack_base, &state);
+    // TODO: CHeck read fails after each of these
+
+    // |  23     |
+    send_segment(&state, &segments[3]);
+    expect_segment(&ack_base, &state);
+
+    // |  23  6  |
+    send_segment(&state, &segments[6]);
+    expect_segment(&ack_base, &state);
+
+    // |  23  6 8|
+    send_segment(&state, &segments[8]);
+    expect_segment(&ack_base, &state);
+
+    // |0 23  6 8|
+    send_segment(&state, &segments[0]);
+    let ack0 =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 1);
+    expect_segment(&ack0, &state);
+    expect_read(segments[0].data(), &mut state);
+
+    // |0123  6 8|
+    send_segment(&state, &segments[1]);
+    let ack3 =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 4);
+    expect_segment(&ack3, &state);
+    expect_read(segments[1].data(), &mut state);
+    expect_read(segments[2].data(), &mut state);
+    expect_read(segments[3].data(), &mut state);
+
+    // |0123 56 8|
+    send_segment(&state, &segments[5]);
+    expect_segment(&ack3, &state);
+
+    // |0123456 8|
+    send_segment(&state, &segments[4]);
+    let ack6 =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 7);
+    expect_segment(&ack6, &state);
+    expect_read(segments[4].data(), &mut state);
+    expect_read(segments[5].data(), &mut state);
+
+    // |012345678|
+    send_segment(&state, &segments[7]);
+    let ack8 =
+        Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 9);
+    expect_segment(&ack8, &state);
+    expect_read(segments[6].data(), &mut state);
+    expect_read(segments[7].data(), &mut state);
+    expect_read(segments[8].data(), &mut state);
+
+    state.tc_seq_num += len * 9;
+
+    shutdown(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -534,6 +620,7 @@ fn test_end_check(state: &mut State) {
     assert!(state.uut_stream.is_none());
     state.timer.test_end_check();
     // TODO: Check that no data can be read
+    // TODO: Check that all buffers empty
 }
 
 fn setup_connected_uut_client() -> State {
@@ -657,6 +744,11 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     // Check that the uut received the correct data
     let read_data = read_uut_stream_once(state);
     assert_eq!(data, read_data);
+}
+
+fn expect_read(exp_data: &[u8], state: &mut State) {
+    let data = read_uut_stream_once(state);
+    assert_eq!(exp_data, data);
 }
 
 fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
