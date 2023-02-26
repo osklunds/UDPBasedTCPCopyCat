@@ -566,8 +566,6 @@ async fn process_recv_buffer(
             if seq_num == locked_connected_state.receive_next {
                 if first_segment.kind() == Fin {
                     assert!(len == 0);
-
-                    // TODO: Test the below. Not incorrect to receive double FIN
                     assert!(!locked_connected_state.fin_received);
                     locked_connected_state.fin_received = true;
                     locked_connected_state.receive_next += 1;
