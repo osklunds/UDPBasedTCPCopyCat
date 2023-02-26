@@ -648,6 +648,21 @@ fn test_out_of_order_receive_buffer_full() {
     shutdown(state);
 }
 
+#[test]
+fn test_retransmission_of_data() {
+    let mut state = setup_connected_uut_client();
+
+    let (sent_seg, received_ack) =
+        main_flow_uut_read(&mut state, b"some data to read");
+    send_segment(&mut state, &sent_seg);
+    expect_segment(&received_ack, &state);
+
+    main_flow_uut_read(&mut state, b"some other data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    shutdown(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -779,7 +794,7 @@ fn wait_shutdown_complete(mut state: State) {
     test_end_check(&mut state);
 }
 
-fn main_flow_uut_read(state: &mut State, data: &[u8]) {
+fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Send from the tc
     let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
     send_segment(&state, &send_seg);
@@ -792,6 +807,8 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) {
     // Check that the uut received the correct data
     let read_data = read_uut_stream_once(state);
     assert_eq!(data, read_data);
+
+    (send_seg, exp_ack)
 }
 
 fn expect_read(exp_data: &[u8], state: &mut State) {
