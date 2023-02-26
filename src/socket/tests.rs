@@ -600,6 +600,54 @@ fn test_multiple_out_of_order_segments() {
     shutdown(state);
 }
 
+#[test]
+fn test_out_of_order_receive_buffer_full() {
+    let mut state = setup_connected_uut_client();
+
+    let mut segments = Vec::new();
+    let num_segments = (MAXIMUM_RECV_BUFFER_SIZE + 1) as u32;
+    let len = 20;
+
+    for segment_index in 0..num_segments as u32 {
+        let data = random_data_of_length(len);
+        let accumlative_len = segment_index * len;
+        let seg = Segment::new(
+            Ack,
+            state.tc_seq_num + accumlative_len,
+            state.uut_seq_num,
+            &data,
+        );
+        segments.push(seg);
+    }
+
+    let ack_base = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
+
+    // Send all segments except the first
+    for segment_index in 1..num_segments {
+        send_segment(&state, &segments[segment_index as usize]);
+        expect_segment(&ack_base, &state);
+    }
+
+    // Now send the first, and get an ack for all segments except the last
+    send_segment(&state, &segments[0]);
+    let offset_second_to_last = (num_segments - 1) * len;
+    let ack_all_except_last = Segment::new_empty(
+        Ack,
+        state.uut_seq_num,
+        state.tc_seq_num + offset_second_to_last,
+    );
+    expect_segment(&ack_all_except_last, &state);
+
+    // Now all data except the last can be read
+    for segment_index in 0..num_segments - 1 {
+        expect_read(segments[segment_index as usize].data(), &mut state);
+    }
+
+    state.tc_seq_num += offset_second_to_last;
+
+    shutdown(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
