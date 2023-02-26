@@ -660,6 +660,23 @@ fn test_retransmission_of_data() {
     shutdown(state);
 }
 
+#[test]
+fn test_retransmission_of_fin() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
+    send_segment(&mut state, &sent_fin);
+    expect_segment(&received_ack, &state);
+
+    main_flow_uut_write(&mut state, b"some other data to write");
+
+    main_flow_uut_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -770,7 +787,7 @@ fn main_flow_uut_shutdown(state: &mut State) {
     state.uut_seq_num += 1;
 }
 
-fn main_flow_tc_shutdown(state: &mut State) {
+fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
     // tc sends FIN
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
@@ -784,6 +801,8 @@ fn main_flow_tc_shutdown(state: &mut State) {
     // Since FIN has been received, 0 data is returned
     let read_data = read_uut_stream_once(state);
     assert_eq!(b"".to_vec(), read_data);
+
+    (send_seg, exp_ack_to_fin)
 }
 
 fn wait_shutdown_complete(mut state: State) {
