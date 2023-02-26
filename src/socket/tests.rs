@@ -68,10 +68,7 @@ use crate::segment::Segment;
 // - shutdown one side at a time
 // - shutdown an retransmissions one side at a time
 // - close causes segment to be lost
-// - one segment is missed, second arrives. i.e. receive side buffering
-// - retransmission of something already delivered to the user
 
-// TODO: Put Main/alternative/expcetional in separate files instead
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
 ////////////////////////////////////////////////////////////////////////////////
