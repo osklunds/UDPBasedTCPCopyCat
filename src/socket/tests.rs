@@ -608,7 +608,7 @@ fn main_flow_uut_shutdown(state: &mut State) {
     state.uut_stream.as_mut().unwrap().shutdown();
     state.timer.wait_for_call_to_sleep();
 
-    // Write fails
+    // Since FIN has been sent, write fails
     let write_result = state.uut_stream.as_mut().unwrap().write(b"some data");
     assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
 
@@ -624,7 +624,6 @@ fn main_flow_uut_shutdown(state: &mut State) {
 }
 
 fn main_flow_tc_shutdown(state: &mut State) {
-    // TODO: Check that read returns 0
     // tc sends FIN
     let send_seg = Segment::new_empty(Fin, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_seg);
@@ -634,6 +633,10 @@ fn main_flow_tc_shutdown(state: &mut State) {
     let exp_ack_to_fin =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&exp_ack_to_fin, &state);
+
+    // Since FIN has been received, 0 data is returned
+    let read_data = read_uut_stream_once(state);
+    assert_eq!(b"".to_vec(), read_data);
 }
 
 fn wait_shutdown_complete(mut state: State) {

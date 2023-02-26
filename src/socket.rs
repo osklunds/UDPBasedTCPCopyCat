@@ -61,11 +61,16 @@ struct ServerStream {
 }
 
 struct ClientStream {
-    read_rx: Receiver<Vec<u8>>,
+    read_rx: Receiver<PeerAction>,
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
     state: Arc<Mutex<ConnectedState>>,
     shutdown_sent: bool,
+}
+
+enum PeerAction {
+    Data(Vec<u8>),
+    EOF,
 }
 
 enum UserAction {
@@ -302,15 +307,19 @@ impl ClientStream {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let data = block_on(self.read_rx.recv()).unwrap();
-        let len = data.len();
+        match block_on(self.read_rx.recv()).unwrap() {
+            PeerAction::Data(data) => {
+                let len = data.len();
 
-        // TODO: Solve the horrible inefficiency
-        for i in 0..len {
-            buf[i] = data[i];
+                // TODO: Solve the horrible inefficiency
+                for i in 0..len {
+                    buf[i] = data[i];
+                }
+
+                Ok(len)
+            }
+            PeerAction::EOF => Ok(0),
         }
-
-        Ok(len)
     }
 }
 
@@ -329,7 +338,7 @@ async fn connected_loop<T: Timer>(
     timer: Arc<T>,
     state: Arc<Mutex<ConnectedState>>,
     udp_socket: UdpSocket,
-    read_tx: Sender<Vec<u8>>,
+    read_tx: Sender<PeerAction>,
     user_action_rx: Receiver<UserAction>,
 ) {
     let recv_socket_state = RecvSocketState {
@@ -431,7 +440,7 @@ enum RecvSocketResult<'a> {
 
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
-    read_tx: Sender<Vec<u8>>,
+    read_tx: Sender<PeerAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
@@ -563,14 +572,17 @@ async fn process_recv_buffer(
                     locked_connected_state.fin_received = true;
                     locked_connected_state.receive_next += 1;
 
-                    // TODO: Send EOF on read_tx
+                    match state.read_tx.send(PeerAction::EOF).await {
+                        Ok(()) => (),
+                        Err(_) => return false,
+                    }
                 } else {
                     assert!(len > 0);
                     assert!(first_segment.kind() == Ack);
 
                     locked_connected_state.receive_next += len;
                     let data = first_segment.to_data();
-                    match state.read_tx.send(data).await {
+                    match state.read_tx.send(PeerAction::Data(data)).await {
                         Ok(()) => (),
                         Err(_) => return false,
                     }
