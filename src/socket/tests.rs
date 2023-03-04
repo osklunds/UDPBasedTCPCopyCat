@@ -537,19 +537,22 @@ fn test_multiple_out_of_order_segments() {
     // |  2      |
     send_segment(&state, &segments[2]);
     expect_segment(&ack_base, &state);
-    // TODO: CHeck read fails after each of these
+    read_check_no_data(&mut state);
 
     // |  23     |
     send_segment(&state, &segments[3]);
     expect_segment(&ack_base, &state);
+    read_check_no_data(&mut state);
 
     // |  23  6  |
     send_segment(&state, &segments[6]);
     expect_segment(&ack_base, &state);
+    read_check_no_data(&mut state);
 
     // |  23  6 8|
     send_segment(&state, &segments[8]);
     expect_segment(&ack_base, &state);
+    read_check_no_data(&mut state);
 
     // |0 23  6 8|
     send_segment(&state, &segments[0]);
@@ -568,20 +571,21 @@ fn test_multiple_out_of_order_segments() {
     // |0123 56 8|
     send_segment(&state, &segments[5]);
     expect_segment(&ack3, &state);
+    read_check_no_data(&mut state);
 
     // |0123456 8|
     send_segment(&state, &segments[4]);
     let ack6 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 7);
     expect_segment(&ack6, &state);
-    expect_read_data_of_segments(&segments[4..=5], &mut state);
+    expect_read_data_of_segments(&segments[4..=6], &mut state);
 
     // |012345678|
     send_segment(&state, &segments[7]);
     let ack8 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 9);
     expect_segment(&ack8, &state);
-    expect_read_data_of_segments(&segments[6..=8], &mut state);
+    expect_read_data_of_segments(&segments[7..=8], &mut state);
 
     state.tc_seq_num += len * 9;
 
@@ -854,7 +858,7 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
         .read_exact(&mut read_data)
         .unwrap();
     assert_eq!(exp_data, read_data);
-    // read_check_no_data(state);
+    read_check_no_data(state);
 }
 
 fn read_check_no_data(state: &mut State) {
