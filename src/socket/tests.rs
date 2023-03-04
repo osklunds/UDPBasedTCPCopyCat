@@ -826,12 +826,13 @@ fn expect_read_data_of_segments<'a, I>(segments: I, state: &mut State)
 where
     I: IntoIterator<Item = &'a Segment>,
 {
-    let mut all_exp_data = Vec::new();
+    let mut exp_datas = Vec::new();
 
-    for exp_data in segments.into_iter().map(|seg| seg.data()) {
-        all_exp_data.extend_from_slice(exp_data);
+    for seg in segments {
+        exp_datas.push(seg.data());
     }
-    expect_read(&all_exp_data, state);
+
+    expect_read_multiple(&exp_datas, state);
 }
 
 fn expect_read_multiple(exp_datas: &[&[u8]], state: &mut State) {
