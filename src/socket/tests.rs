@@ -418,8 +418,7 @@ fn test_multi_segment_write() {
 
     // Send from uut
     state.timer.expect_call_to_sleep();
-    let written_len =
-        state.uut_stream.as_mut().unwrap().write(&data).unwrap() as u32;
+    let written_len = uut_stream(&mut state).write(&data).unwrap() as u32;
     assert_eq!(len, written_len);
     state.timer.wait_for_call_to_sleep();
 
@@ -766,11 +765,11 @@ fn main_flow_uut_shutdown(state: &mut State) {
     thread::sleep(Duration::from_millis(1));
 
     state.timer.expect_call_to_sleep();
-    state.uut_stream.as_mut().unwrap().shutdown();
+    uut_stream(state).shutdown();
     state.timer.wait_for_call_to_sleep();
 
     // Since FIN has been sent, write fails
-    let write_result = state.uut_stream.as_mut().unwrap().write(b"some data");
+    let write_result = uut_stream(state).write(b"some data");
     assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
 
     // uut sends FIN
@@ -798,7 +797,7 @@ fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
     // Since FIN has been received, 0 data is returned
     let mut buf = [0; 123];
     let buf_before = buf.clone();
-    let read_len = state.uut_stream.as_mut().unwrap().read(&mut buf).unwrap();
+    let read_len = uut_stream(state).read(&mut buf).unwrap();
     assert_eq!(0, read_len);
     assert_eq!(buf_before, buf);
 
@@ -848,19 +847,18 @@ fn expect_read(exp_datas: &[&[u8]], state: &mut State) {
 
     let mut read_data = vec![0; all_exp_data.len()];
     assert_ne!(all_exp_data, read_data);
-    state
-        .uut_stream
-        .as_mut()
-        .unwrap()
-        .read_exact(&mut read_data)
-        .unwrap();
+    uut_stream(state).read_exact(&mut read_data).unwrap();
     assert_eq!(all_exp_data, read_data);
     expect_read_no_data(state);
 }
 
+fn uut_stream(state: &mut State) -> &mut Stream {
+    state.uut_stream.as_mut().unwrap()
+}
+
 fn expect_read_no_data(state: &mut State) {
     let mut buf = [0; 1];
-    let res = state.uut_stream.as_mut().unwrap().read(&mut buf);
+    let res = uut_stream(state).read(&mut buf);
     assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
 }
 
@@ -879,7 +877,7 @@ fn main_flow_uut_write(state: &mut State, data: &[u8]) {
 
 fn uut_write(state: &mut State, data: &[u8]) -> (u32, Segment) {
     // Send from the uut
-    let written_len = state.uut_stream.as_mut().unwrap().write(&data).unwrap();
+    let written_len = uut_stream(state).write(&data).unwrap();
     let len = data.len();
     assert_eq!(len, written_len);
 
