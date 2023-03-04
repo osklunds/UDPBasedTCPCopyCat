@@ -537,22 +537,22 @@ fn test_multiple_out_of_order_segments() {
     // |  2      |
     send_segment(&state, &segments[2]);
     expect_segment(&ack_base, &state);
-    read_check_no_data(&mut state);
+    expect_read_no_data(&mut state);
 
     // |  23     |
     send_segment(&state, &segments[3]);
     expect_segment(&ack_base, &state);
-    read_check_no_data(&mut state);
+    expect_read_no_data(&mut state);
 
     // |  23  6  |
     send_segment(&state, &segments[6]);
     expect_segment(&ack_base, &state);
-    read_check_no_data(&mut state);
+    expect_read_no_data(&mut state);
 
     // |  23  6 8|
     send_segment(&state, &segments[8]);
     expect_segment(&ack_base, &state);
-    read_check_no_data(&mut state);
+    expect_read_no_data(&mut state);
 
     // |0 23  6 8|
     send_segment(&state, &segments[0]);
@@ -571,7 +571,7 @@ fn test_multiple_out_of_order_segments() {
     // |0123 56 8|
     send_segment(&state, &segments[5]);
     expect_segment(&ack3, &state);
-    read_check_no_data(&mut state);
+    expect_read_no_data(&mut state);
 
     // |0123456 8|
     send_segment(&state, &segments[4]);
@@ -855,10 +855,10 @@ fn expect_read(exp_datas: &[&[u8]], state: &mut State) {
         .read_exact(&mut read_data)
         .unwrap();
     assert_eq!(all_exp_data, read_data);
-    read_check_no_data(state);
+    expect_read_no_data(state);
 }
 
-fn read_check_no_data(state: &mut State) {
+fn expect_read_no_data(state: &mut State) {
     let mut buf = [0; 1];
     let res = state.uut_stream.as_mut().unwrap().read(&mut buf);
     assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
