@@ -507,7 +507,7 @@ fn test_out_of_order_segment() {
 
     state.tc_seq_num += len1 + len2;
 
-    expect_read_multiple(&[data1, data2], &mut state);
+    expect_read(&[data1, data2], &mut state);
 
     shutdown(state);
 }
@@ -821,7 +821,7 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     expect_segment(&exp_ack, &state);
 
     // Check that the uut received the correct data
-    expect_read(&data, state);
+    expect_read(&[data], state);
 
     (send_seg, exp_ack)
 }
@@ -836,28 +836,25 @@ where
         exp_datas.push(seg.data());
     }
 
-    expect_read_multiple(&exp_datas, state);
+    expect_read(&exp_datas, state);
 }
 
-fn expect_read_multiple(exp_datas: &[&[u8]], state: &mut State) {
+fn expect_read(exp_datas: &[&[u8]], state: &mut State) {
     let mut all_exp_data = Vec::new();
 
     for exp_data in exp_datas {
         all_exp_data.extend_from_slice(exp_data);
     }
-    expect_read(&all_exp_data, state);
-}
 
-fn expect_read(exp_data: &[u8], state: &mut State) {
-    let mut read_data = vec![0; exp_data.len()];
-    assert_ne!(exp_data, read_data);
+    let mut read_data = vec![0; all_exp_data.len()];
+    assert_ne!(all_exp_data, read_data);
     state
         .uut_stream
         .as_mut()
         .unwrap()
         .read_exact(&mut read_data)
         .unwrap();
-    assert_eq!(exp_data, read_data);
+    assert_eq!(all_exp_data, read_data);
     read_check_no_data(state);
 }
 
