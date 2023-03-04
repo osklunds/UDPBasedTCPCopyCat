@@ -507,10 +507,7 @@ fn test_out_of_order_segment() {
 
     state.tc_seq_num += len1 + len2;
 
-    let read_data1 = read_uut_stream_once(&mut state);
-    assert_eq!(data1.to_vec(), read_data1);
-    let read_data2 = read_uut_stream_once(&mut state);
-    assert_eq!(data2.to_vec(), read_data2);
+    expect_read_multiple(&[data1, data2], &mut state);
 
     shutdown(state);
 }
@@ -795,8 +792,11 @@ fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
     expect_segment(&exp_ack_to_fin, &state);
 
     // Since FIN has been received, 0 data is returned
-    let read_data = read_uut_stream_once(state);
-    assert_eq!(b"".to_vec(), read_data);
+    let mut buf = [0; 123];
+    let buf_before = buf.clone();
+    let read_len = state.uut_stream.as_mut().unwrap().read(&mut buf).unwrap();
+    assert_eq!(0, read_len);
+    assert_eq!(buf_before, buf);
 
     (send_seg, exp_ack_to_fin)
 }
@@ -834,6 +834,15 @@ where
     expect_read(&all_exp_data, state);
 }
 
+fn expect_read_multiple(exp_datas: &[&[u8]], state: &mut State) {
+    let mut all_exp_data = Vec::new();
+
+    for exp_data in exp_datas {
+        all_exp_data.extend_from_slice(exp_data);
+    }
+    expect_read(&all_exp_data, state);
+}
+
 fn expect_read(exp_data: &[u8], state: &mut State) {
     let mut read_data = vec![0; exp_data.len()];
     assert_ne!(exp_data, read_data);
@@ -845,13 +854,6 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
         .unwrap();
     assert_eq!(exp_data, read_data);
     // read_check_no_data(state);
-}
-
-fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
-    let mut buf = [0; 4096];
-    let amt = state.uut_stream.as_mut().unwrap().read(&mut buf).unwrap();
-
-    buf[0..amt].to_vec()
 }
 
 fn read_check_no_data(state: &mut State) {
