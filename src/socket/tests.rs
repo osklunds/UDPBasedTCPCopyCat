@@ -559,17 +559,14 @@ fn test_multiple_out_of_order_segments() {
     let ack0 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 1);
     expect_segment(&ack0, &state);
-    expect_read_multiple(&[segments[0].data()], &mut state);
+    expect_read_data_of_segments(&segments[0..=0], &mut state);
 
     // |0123  6 8|
     send_segment(&state, &segments[1]);
     let ack3 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 4);
     expect_segment(&ack3, &state);
-    expect_read_multiple(
-        &[segments[1].data(), segments[2].data(), segments[3].data()],
-        &mut state,
-    );
+    expect_read_data_of_segments(&segments[1..=3], &mut state);
 
     // |0123 56 8|
     send_segment(&state, &segments[5]);
@@ -580,17 +577,14 @@ fn test_multiple_out_of_order_segments() {
     let ack6 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 7);
     expect_segment(&ack6, &state);
-    expect_read_multiple(&[segments[4].data(), segments[5].data()], &mut state);
+    expect_read_data_of_segments(&segments[4..=5], &mut state);
 
     // |012345678|
     send_segment(&state, &segments[7]);
     let ack8 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 9);
     expect_segment(&ack8, &state);
-    expect_read_multiple(
-        &[segments[6].data(), segments[7].data(), segments[8].data()],
-        &mut state,
-    );
+    expect_read_data_of_segments(&segments[6..=8], &mut state);
 
     state.tc_seq_num += len * 9;
 
@@ -823,15 +817,9 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     expect_segment(&exp_ack, &state);
 
     // Check that the uut received the correct data
-    expect_read(data, state);
-
-    read_check_no_data(state);
+    expect_read(&data, state);
 
     (send_seg, exp_ack)
-}
-
-fn expect_read(exp_data: &[u8], state: &mut State) {
-    expect_read_multiple(&[exp_data], state);
 }
 
 fn expect_read_data_of_segments<'a, I>(segments: I, state: &mut State)
@@ -843,43 +831,20 @@ where
     for exp_data in segments.into_iter().map(|seg| seg.data()) {
         all_exp_data.extend_from_slice(exp_data);
     }
+    expect_read(&all_exp_data, state);
+}
 
-    let mut read_data = vec![0; all_exp_data.len()];
-    assert_ne!(all_exp_data, read_data);
+fn expect_read(exp_data: &[u8], state: &mut State) {
+    let mut read_data = vec![0; exp_data.len()];
+    assert_ne!(exp_data, read_data);
     state
         .uut_stream
         .as_mut()
         .unwrap()
         .read_exact(&mut read_data)
         .unwrap();
-
-    assert_eq!(all_exp_data, read_data);
-}
-
-fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
-    let mut all_exp_data = Vec::new();
-
-    for exp_data in exp_data_array {
-        all_exp_data.extend_from_slice(exp_data);
-    }
-
-    let mut read_data = vec![0; all_exp_data.len()];
-    state
-        .uut_stream
-        .as_mut()
-        .unwrap()
-        .read_exact(&mut read_data)
-        .unwrap();
-
-    assert_eq!(all_exp_data, read_data);
-}
-
-fn read_once(state: &mut State) -> Result<Vec<u8>> {
-    let mut buf = [0; 4096];
-    match state.uut_stream.as_mut().unwrap().read(&mut buf) {
-        Ok(amt) => Ok(buf[0..amt].to_vec()),
-        Err(err) => Err(err),
-    }
+    assert_eq!(exp_data, read_data);
+    // read_check_no_data(state);
 }
 
 fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
