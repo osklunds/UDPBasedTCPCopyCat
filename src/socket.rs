@@ -359,9 +359,9 @@ impl ClientStream {
     }
 }
 
-impl Read for ClientStream {
+impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        ClientStream::read(self, buf)
+        Stream::read(self, buf)
     }
 }
 
