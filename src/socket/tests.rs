@@ -829,8 +829,14 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
 }
 
 fn expect_read(exp_data: &[u8], state: &mut State) {
-    let data = read_uut_stream_once(state);
-    assert_eq!(exp_data, data);
+    expect_read_multiple(&[exp_data], state);
+}
+
+fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
+    for &exp_data in exp_data_array {
+        let data = read_uut_stream_once(state);
+        assert_eq!(exp_data, data);
+    }
 }
 
 fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
