@@ -2,13 +2,14 @@
 mod tests;
 
 use async_channel::{Receiver, Sender};
+use async_std::future;
 use async_std::net::*;
 use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
 use std::collections::BTreeMap;
-use std::io::{Error, ErrorKind, Result};
+use std::io::{Error, ErrorKind, Read, Result};
 use std::str;
 use std::sync::Arc;
 use std::thread;
@@ -317,23 +318,50 @@ impl ClientStream {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match block_on(self.read_rx.recv()).unwrap() {
-            PeerAction::Data(data) => {
-                let len = data.len();
+        block_on(self.read_async(buf))
+    }
 
-                // TODO: Solve the horrible inefficiency
-                for i in 0..len {
-                    buf[i] = data[i];
+    async fn read_async(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let read_future = self.read_rx.recv();
+        let timeout_result = match self.read_timeout {
+            Some(duration) => future::timeout(duration, read_future).await,
+            None => Ok(read_future.await),
+        };
+        match timeout_result {
+            Ok(channel_result) => match channel_result {
+                Ok(result) => {
+                    match result {
+                        PeerAction::Data(data) => {
+                            let len = data.len();
+
+                            // TODO: Solve the horrible inefficiency
+                            for i in 0..len {
+                                buf[i] = data[i];
+                            }
+
+                            Ok(len)
+                        }
+                        PeerAction::EOF => Ok(0),
+                    }
                 }
-
-                Ok(len)
+                Err(async_channel::RecvError) => {
+                    todo!()
+                }
+            },
+            Err(future::TimeoutError { .. }) => {
+                Err(Error::new(ErrorKind::WouldBlock, "Would block"))
             }
-            PeerAction::EOF => Ok(0),
         }
     }
 
     fn set_read_timeout(&mut self, dur: Option<Duration>) {
         self.read_timeout = dur;
+    }
+}
+
+impl Read for ClientStream {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        ClientStream::read(self, buf)
     }
 }
 

@@ -824,6 +824,8 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     let read_data = read_uut_stream_once(state);
     assert_eq!(data, read_data);
 
+    read_check_no_data(state);
+
     (send_seg, exp_ack)
 }
 
@@ -835,7 +837,14 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
 fn read_uut_stream_once(state: &mut State) -> Vec<u8> {
     let mut buf = [0; 4096];
     let amt = state.uut_stream.as_mut().unwrap().read(&mut buf).unwrap();
+
     buf[0..amt].to_vec()
+}
+
+fn read_check_no_data(state: &mut State) {
+    let mut buf = [0; 1];
+    let res = state.uut_stream.as_mut().unwrap().read(&mut buf);
+    assert!(res.is_err());
 }
 
 fn main_flow_uut_write(state: &mut State, data: &[u8]) {
