@@ -861,7 +861,7 @@ fn expect_read(exp_datas: &[&[u8]], state: &mut State) {
 fn read_check_no_data(state: &mut State) {
     let mut buf = [0; 1];
     let res = state.uut_stream.as_mut().unwrap().read(&mut buf);
-    assert!(res.is_err());
+    assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
 }
 
 fn main_flow_uut_write(state: &mut State, data: &[u8]) {
