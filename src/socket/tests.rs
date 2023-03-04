@@ -834,8 +834,16 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
 
 fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
     for &exp_data in exp_data_array {
-        let data = read_uut_stream_once(state);
+        let data = read_once(state).unwrap();
         assert_eq!(exp_data, data);
+    }
+}
+
+fn read_once(state: &mut State) -> Result<Vec<u8>> {
+    let mut buf = [0; 4096];
+    match state.uut_stream.as_mut().unwrap().read(&mut buf) {
+        Ok(amt) => Ok(buf[0..amt].to_vec()),
+        Err(err) => Err(err),
     }
 }
 
