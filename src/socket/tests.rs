@@ -580,17 +580,17 @@ fn test_multiple_out_of_order_segments() {
     let ack6 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 7);
     expect_segment(&ack6, &state);
-    expect_read(segments[4].data(), &mut state);
-    expect_read(segments[5].data(), &mut state);
+    expect_read_multiple(&[segments[4].data(), segments[5].data()], &mut state);
 
     // |012345678|
     send_segment(&state, &segments[7]);
     let ack8 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 9);
     expect_segment(&ack8, &state);
-    expect_read(segments[6].data(), &mut state);
-    expect_read(segments[7].data(), &mut state);
-    expect_read(segments[8].data(), &mut state);
+    expect_read_multiple(
+        &[segments[6].data(), segments[7].data(), segments[8].data()],
+        &mut state,
+    );
 
     state.tc_seq_num += len * 9;
 
@@ -636,9 +636,7 @@ fn test_out_of_order_receive_buffer_full() {
     expect_segment(&ack_all_except_last, &state);
 
     // Now all data except the last can be read
-    for segment_index in 0..num_segments - 1 {
-        expect_read(segments[segment_index as usize].data(), &mut state);
-    }
+    expect_read_segments(&segments[0..(num_segments - 1) as usize], &mut state);
 
     state.tc_seq_num += offset_second_to_last;
 
@@ -831,6 +829,11 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
 
 fn expect_read(exp_data: &[u8], state: &mut State) {
     expect_read_multiple(&[exp_data], state);
+}
+
+fn expect_read_segments(segments: &[Segment], state: &mut State) {
+    let data: Vec<&[u8]> = segments.iter().map(|seg| seg.data()).collect();
+    expect_read_multiple(&data, state);
 }
 
 fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
