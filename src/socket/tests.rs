@@ -821,8 +821,7 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     expect_segment(&exp_ack, &state);
 
     // Check that the uut received the correct data
-    let read_data = read_uut_stream_once(state);
-    assert_eq!(data, read_data);
+    expect_read(data, state);
 
     read_check_no_data(state);
 
