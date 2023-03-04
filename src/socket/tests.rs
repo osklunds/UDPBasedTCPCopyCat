@@ -836,8 +836,8 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
 fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
     let mut all_exp_data = Vec::new();
 
-    for &exp_data in exp_data_array {
-        all_exp_data.append(&mut exp_data.to_vec());
+    for exp_data in exp_data_array {
+        all_exp_data.extend_from_slice(exp_data);
     }
 
     let mut read_data = vec![0; all_exp_data.len()];
