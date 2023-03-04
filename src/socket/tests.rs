@@ -703,7 +703,7 @@ fn setup_connected_uut_client() -> State {
     let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let tc_socket = UdpSocket::bind(tc_addr).unwrap();
     tc_socket
-        .set_read_timeout(Some(Duration::from_millis(5)))
+        .set_read_timeout(Some(Duration::from_millis(2)))
         .unwrap();
 
     uut_connect(tc_socket)
