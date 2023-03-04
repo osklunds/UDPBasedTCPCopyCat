@@ -737,7 +737,8 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     tc_seq_num += 1;
     assert_eq!(tc_seq_num, ack.ack_num());
 
-    let uut_stream = join_handle.join().unwrap();
+    let mut uut_stream = join_handle.join().unwrap();
+    uut_stream.set_read_timeout(Some(Duration::from_millis(2)));
 
     State {
         tc_socket,

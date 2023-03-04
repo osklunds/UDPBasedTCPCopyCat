@@ -61,11 +61,13 @@ struct ServerStream {
 }
 
 struct ClientStream {
+    // TODO: Rename to peer_action_rx
     read_rx: Receiver<PeerAction>,
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
     state: Arc<Mutex<ConnectedState>>,
     shutdown_sent: bool,
+    read_timeout: Option<Duration>,
 }
 
 enum PeerAction {
@@ -182,6 +184,7 @@ impl Stream {
                     join_handle,
                     state: state_in_arc,
                     shutdown_sent: false,
+                    read_timeout: None,
                 };
                 let inner_stream = InnerStream::Client(client_stream);
                 let stream = Stream { inner_stream };
@@ -270,6 +273,12 @@ impl Stream {
         }
     }
 
+    pub fn set_read_timeout(&mut self, dur: Option<Duration>) {
+        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
+            client_stream.set_read_timeout(dur);
+        }
+    }
+
     pub fn shutdown(&mut self) {
         if let InnerStream::Client(client_stream) = &mut self.inner_stream {
             client_stream.shutdown_sent = true;
@@ -321,6 +330,10 @@ impl ClientStream {
             }
             PeerAction::EOF => Ok(0),
         }
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<Duration>) {
+        self.read_timeout = dur;
     }
 }
 
