@@ -636,7 +636,10 @@ fn test_out_of_order_receive_buffer_full() {
     expect_segment(&ack_all_except_last, &state);
 
     // Now all data except the last can be read
-    expect_read_segments(&segments[0..(num_segments - 1) as usize], &mut state);
+    expect_read_data_of_segments(
+        &mut segments[0..(num_segments - 1) as usize].iter(),
+        &mut state,
+    );
 
     state.tc_seq_num += offset_second_to_last;
 
@@ -831,9 +834,25 @@ fn expect_read(exp_data: &[u8], state: &mut State) {
     expect_read_multiple(&[exp_data], state);
 }
 
-fn expect_read_segments(segments: &[Segment], state: &mut State) {
-    let data: Vec<&[u8]> = segments.iter().map(|seg| seg.data()).collect();
-    expect_read_multiple(&data, state);
+fn expect_read_data_of_segments(
+    segments: &mut dyn Iterator<Item = &Segment>,
+    state: &mut State,
+) {
+    let mut all_exp_data = Vec::new();
+
+    for exp_data in segments.map(|seg| seg.data()) {
+        all_exp_data.extend_from_slice(exp_data);
+    }
+
+    let mut read_data = vec![0; all_exp_data.len()];
+    state
+        .uut_stream
+        .as_mut()
+        .unwrap()
+        .read_exact(&mut read_data)
+        .unwrap();
+
+    assert_eq!(all_exp_data, read_data);
 }
 
 fn expect_read_multiple(exp_data_array: &[&[u8]], state: &mut State) {
