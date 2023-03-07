@@ -64,9 +64,10 @@ use crate::segment::Segment;
 // Test cases needed:
 // - Cumulative ack, one byte more and one byte less
 //   than the border
-// - Send long data that needs two segments
 // - shutdown an retransmissions one side at a time
 // - close causes segment to be lost
+// - buf too small, i.e. need to have a field in ClientStream for storing
+//   potentially data received on last channel read.
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
