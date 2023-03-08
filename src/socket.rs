@@ -62,8 +62,7 @@ struct ServerStream {
 }
 
 struct ClientStream {
-    // TODO: Rename to peer_action_rx
-    read_rx: Receiver<PeerAction>,
+    peer_action_rx: Receiver<PeerAction>,
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
     state: Arc<Mutex<ConnectedState>>,
@@ -145,7 +144,7 @@ impl Stream {
     ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
-        let (read_tx, read_rx) = async_channel::unbounded();
+        let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
         match block_on(UdpSocket::bind(local_addr)) {
@@ -175,13 +174,13 @@ impl Stream {
                             timer,
                             state_for_loop,
                             udp_socket,
-                            read_tx,
+                            peer_action_tx,
                             user_action_rx,
                         ))
                     })
                     .unwrap();
                 let client_stream = ClientStream {
-                    read_rx,
+                    peer_action_rx,
                     user_action_tx,
                     join_handle,
                     state: state_in_arc,
@@ -345,7 +344,7 @@ impl ClientStream {
     }
 
     async fn read_peer_action_channel(&mut self) -> Result<Vec<u8>> {
-        let read_future = self.read_rx.recv();
+        let read_future = self.peer_action_rx.recv();
         let timeout_result = match self.read_timeout {
             Some(duration) => future::timeout(duration, read_future).await,
             None => Ok(read_future.await),
@@ -392,12 +391,12 @@ async fn connected_loop<T: Timer>(
     timer: Arc<T>,
     state: Arc<Mutex<ConnectedState>>,
     udp_socket: UdpSocket,
-    read_tx: Sender<PeerAction>,
+    peer_action_tx: Sender<PeerAction>,
     user_action_rx: Receiver<UserAction>,
 ) {
     let recv_socket_state = RecvSocketState {
         udp_socket: &udp_socket,
-        read_tx,
+        peer_action_tx,
         connected_state: Arc::clone(&state),
     };
     let recv_user_action_rx_state = RecvUserActionState {
@@ -494,7 +493,7 @@ enum RecvSocketResult<'a> {
 
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
-    read_tx: Sender<PeerAction>,
+    peer_action_tx: Sender<PeerAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
@@ -624,7 +623,7 @@ async fn process_recv_buffer(
                     locked_connected_state.fin_received = true;
                     locked_connected_state.receive_next += 1;
 
-                    match state.read_tx.send(PeerAction::EOF).await {
+                    match state.peer_action_tx.send(PeerAction::EOF).await {
                         Ok(()) => (),
                         Err(_) => return false,
                     }
@@ -634,7 +633,11 @@ async fn process_recv_buffer(
 
                     locked_connected_state.receive_next += len;
                     let data = first_segment.to_data();
-                    match state.read_tx.send(PeerAction::Data(data)).await {
+                    match state
+                        .peer_action_tx
+                        .send(PeerAction::Data(data))
+                        .await
+                    {
                         Ok(()) => (),
                         Err(_) => return false,
                     }
