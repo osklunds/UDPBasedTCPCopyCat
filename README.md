@@ -8,6 +8,7 @@ My own simplified TCP-like protocol that runs over UDP.
 - Alternative flow tests for shutdown
 - Clean up client code
 - Clean up Segment
+- Enable more warnings
 - More Segment tests
 - Make the server side work
 - Test server and client together

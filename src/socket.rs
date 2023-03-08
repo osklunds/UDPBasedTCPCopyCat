@@ -69,6 +69,7 @@ struct ClientStream {
     state: Arc<Mutex<ConnectedState>>,
     shutdown_sent: bool,
     read_timeout: Option<Duration>,
+    last_data: Option<Vec<u8>>,
 }
 
 enum PeerAction {
@@ -186,6 +187,7 @@ impl Stream {
                     state: state_in_arc,
                     shutdown_sent: false,
                     read_timeout: None,
+                    last_data: None,
                 };
                 let inner_stream = InnerStream::Client(client_stream);
                 let stream = Stream { inner_stream };
@@ -318,10 +320,32 @@ impl ClientStream {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        block_on(self.read_async(buf))
+        let data = match self.last_data.take() {
+            Some(data) => Ok(data),
+            None => block_on(self.read_peer_action_channel()),
+        };
+
+        match data {
+            Ok(mut data) => {
+                let data_len = data.len();
+                let len = std::cmp::min(buf.len(), data_len);
+                // TODO: Solve the horrible inefficiency
+                for i in 0..len {
+                    buf[i] = data[i];
+                }
+
+                if data_len > len {
+                    let rest = data.split_off(len);
+                    self.last_data = Some(rest);
+                }
+
+                Ok(len)
+            }
+            Err(err) => Err(err),
+        }
     }
 
-    async fn read_async(&mut self, buf: &mut [u8]) -> Result<usize> {
+    async fn read_peer_action_channel(&mut self) -> Result<Vec<u8>> {
         let read_future = self.read_rx.recv();
         let timeout_result = match self.read_timeout {
             Some(duration) => future::timeout(duration, read_future).await,
@@ -329,21 +353,10 @@ impl ClientStream {
         };
         match timeout_result {
             Ok(channel_result) => match channel_result {
-                Ok(result) => {
-                    match result {
-                        PeerAction::Data(data) => {
-                            let len = data.len();
-
-                            // TODO: Solve the horrible inefficiency
-                            for i in 0..len {
-                                buf[i] = data[i];
-                            }
-
-                            Ok(len)
-                        }
-                        PeerAction::EOF => Ok(0),
-                    }
-                }
+                Ok(result) => match result {
+                    PeerAction::Data(data) => Ok(data),
+                    PeerAction::EOF => Ok(Vec::new()),
+                },
                 Err(async_channel::RecvError) => {
                     todo!()
                 }

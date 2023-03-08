@@ -673,6 +673,35 @@ fn test_retransmission_of_fin() {
     wait_shutdown_complete(state);
 }
 
+#[test]
+fn test_too_small_read_buffer() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some intial data");
+
+    // Send some data
+    let data = b"Some_data";
+    main_flow_send_from_tc(&mut state, data);
+
+    // Read into a small buffer, not everything fits
+    const BUF_LEN1: usize = 5;
+    let mut buf1 = [0; BUF_LEN1];
+    let read_len1 = uut_stream(&mut state).read(&mut buf1).unwrap();
+    assert_eq!(BUF_LEN1, read_len1);
+    assert_eq!(&buf1, b"Some_");
+
+    // Read the rest
+    const BUF_LEN2: usize = 10;
+    let mut buf2 = [0; BUF_LEN2];
+    let read_len2 = uut_stream(&mut state).read(&mut buf2).unwrap();
+    assert_eq!(4, read_len2);
+    assert_eq!(&buf2[0..4], b"data");
+
+    main_flow_uut_read(&mut state, b"more data in the end");
+
+    shutdown(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -755,6 +784,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 // so all data was received
 // Perhaps also add a poll function to check if closing state
 fn shutdown(mut state: State) {
+    // TODO: Check that read fails
     main_flow_uut_shutdown(&mut state);
     main_flow_tc_shutdown(&mut state);
     wait_shutdown_complete(state);
@@ -811,6 +841,18 @@ fn wait_shutdown_complete(mut state: State) {
 }
 
 fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
+    let segments = main_flow_send_from_tc(state, data);
+
+    // Check that the uut received the correct data
+    expect_read(&[data], state);
+
+    segments
+}
+
+fn main_flow_send_from_tc(
+    state: &mut State,
+    data: &[u8],
+) -> (Segment, Segment) {
     // Send from the tc
     let send_seg = Segment::new(Ack, state.tc_seq_num, state.uut_seq_num, data);
     send_segment(&state, &send_seg);
@@ -819,9 +861,6 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Recv ACK from the uut
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&exp_ack, &state);
-
-    // Check that the uut received the correct data
-    expect_read(&[data], state);
 
     (send_seg, exp_ack)
 }
