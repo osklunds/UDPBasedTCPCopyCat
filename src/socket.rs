@@ -264,7 +264,6 @@ impl Stream {
         }
     }
 
-    // TODO: Read what fits in the buffer, stash locally if too big
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         match &mut self.inner_stream {
             InnerStream::Client(client_stream) => {
