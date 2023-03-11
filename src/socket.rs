@@ -288,6 +288,9 @@ impl Stream {
         }
     }
 
+    // TODO: If no FIN received, a timeout should be used to see that
+    // not getting stuck. Can probably re-use the normal retransmission timer
+    // for this
     pub fn wait_shutdown_complete(self) {
         if let InnerStream::Client(client_stream) = self.inner_stream {
             client_stream.join_handle.join().unwrap();
