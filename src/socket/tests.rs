@@ -228,7 +228,7 @@ fn test_client_write_retransmit_due_to_timeout() {
     state.timer.trigger_and_expect_new_call();
     state.timer.wait_for_call_to_sleep();
 
-    expect_segment(&recv_seg, &state);
+    expect_segment(&state, &recv_seg);
 
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
@@ -265,9 +265,9 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
     state.timer.trigger_and_expect_new_call();
     state.timer.wait_for_call_to_sleep();
 
-    expect_segment(&recv_seg1, &state);
-    expect_segment(&recv_seg2, &state);
-    expect_segment(&recv_seg3, &state);
+    expect_segment(&state, &recv_seg1);
+    expect_segment(&state, &recv_seg2);
+    expect_segment(&state, &recv_seg3);
 
     let ack1 =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len1);
@@ -325,8 +325,8 @@ fn test_client_write_retransmit_due_to_old_ack() {
 
     // This causes uut to retransmit everything from the acked seq_num to
     // "current"
-    expect_segment(&recv_seg1, &state);
-    expect_segment(&recv_seg2, &state);
+    expect_segment(&state, &recv_seg1);
+    expect_segment(&state, &recv_seg2);
 
     // Now the tc sends ack for both of them
     state.timer.expect_call_to_sleep();
@@ -369,7 +369,7 @@ fn test_first_segment_acked_but_not_second() {
     state.timer.trigger_and_expect_new_call();
 
     // Only the unacked segment is retransmitted
-    expect_segment(&recv_seg2, &state);
+    expect_segment(&state, &recv_seg2);
     state.timer.wait_for_call_to_sleep();
 
     let ack2 = Segment::new_empty(
@@ -428,7 +428,7 @@ fn test_multi_segment_write() {
         state.tc_seq_num,
         &data[0..MAXIMUM_SEGMENT_SIZE as usize],
     );
-    expect_segment(&exp_seg1, &state);
+    expect_segment(&state, &exp_seg1);
 
     // Receive the second segment
     let exp_seg2 = Segment::new(
@@ -437,7 +437,7 @@ fn test_multi_segment_write() {
         state.tc_seq_num,
         &data[MAXIMUM_SEGMENT_SIZE as usize..],
     );
-    expect_segment(&exp_seg2, &state);
+    expect_segment(&state, &exp_seg2);
 
     state.uut_seq_num += len;
 
@@ -489,7 +489,7 @@ fn test_out_of_order_segment() {
 
     // ACK for the data before seg1 received
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&exp_ack, &state);
+    expect_segment(&state, &exp_ack);
 
     expect_read_no_data(&mut state);
 
@@ -501,7 +501,7 @@ fn test_out_of_order_segment() {
         state.uut_seq_num,
         state.tc_seq_num + len1 + len2,
     );
-    expect_segment(&exp_ack_all, &state);
+    expect_segment(&state, &exp_ack_all);
 
     state.tc_seq_num += len1 + len2;
 
@@ -534,55 +534,55 @@ fn test_multiple_out_of_order_segments() {
     // TODO: Make arg order consistent
     // |  2      |
     send_segment(&state, &segments[2]);
-    expect_segment(&ack_base, &state);
+    expect_segment(&state, &ack_base);
     expect_read_no_data(&mut state);
 
     // |  23     |
     send_segment(&state, &segments[3]);
-    expect_segment(&ack_base, &state);
+    expect_segment(&state, &ack_base);
     expect_read_no_data(&mut state);
 
     // |  23  6  |
     send_segment(&state, &segments[6]);
-    expect_segment(&ack_base, &state);
+    expect_segment(&state, &ack_base);
     expect_read_no_data(&mut state);
 
     // |  23  6 8|
     send_segment(&state, &segments[8]);
-    expect_segment(&ack_base, &state);
+    expect_segment(&state, &ack_base);
     expect_read_no_data(&mut state);
 
     // |0 23  6 8|
     send_segment(&state, &segments[0]);
     let ack0 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 1);
-    expect_segment(&ack0, &state);
+    expect_segment(&state, &ack0);
     expect_read_data_of_segments(&mut state, &segments[0..=0]);
 
     // |0123  6 8|
     send_segment(&state, &segments[1]);
     let ack3 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 4);
-    expect_segment(&ack3, &state);
+    expect_segment(&state, &ack3);
     expect_read_data_of_segments(&mut state, &segments[1..=3]);
 
     // |0123 56 8|
     send_segment(&state, &segments[5]);
-    expect_segment(&ack3, &state);
+    expect_segment(&state, &ack3);
     expect_read_no_data(&mut state);
 
     // |0123456 8|
     send_segment(&state, &segments[4]);
     let ack6 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 7);
-    expect_segment(&ack6, &state);
+    expect_segment(&state, &ack6);
     expect_read_data_of_segments(&mut state, &segments[4..=6]);
 
     // |012345678|
     send_segment(&state, &segments[7]);
     let ack8 =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num + len * 9);
-    expect_segment(&ack8, &state);
+    expect_segment(&state, &ack8);
     expect_read_data_of_segments(&mut state, &segments[7..=8]);
 
     state.tc_seq_num += len * 9;
@@ -615,7 +615,7 @@ fn test_out_of_order_receive_buffer_full() {
     // Send all segments except the first
     for segment_index in 1..num_segments {
         send_segment(&state, &segments[segment_index as usize]);
-        expect_segment(&ack_base, &state);
+        expect_segment(&state, &ack_base);
     }
 
     // Now send the first, and get an ack for all segments except the last
@@ -626,7 +626,7 @@ fn test_out_of_order_receive_buffer_full() {
         state.uut_seq_num,
         state.tc_seq_num + offset_second_to_last,
     );
-    expect_segment(&ack_all_except_last, &state);
+    expect_segment(&state, &ack_all_except_last);
 
     // Now all data except the last can be read
     expect_read_data_of_segments(
@@ -646,7 +646,7 @@ fn test_retransmission_of_data() {
     let (sent_seg, received_ack) =
         main_flow_uut_read(&mut state, b"some data to read");
     send_segment(&mut state, &sent_seg);
-    expect_segment(&received_ack, &state);
+    expect_segment(&state, &received_ack);
 
     main_flow_uut_read(&mut state, b"some other data");
     main_flow_uut_write(&mut state, b"some data to write");
@@ -663,7 +663,7 @@ fn test_retransmission_of_fin() {
 
     let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
     send_segment(&mut state, &sent_fin);
-    expect_segment(&received_ack, &state);
+    expect_segment(&state, &received_ack);
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
@@ -793,7 +793,7 @@ fn main_flow_uut_shutdown(state: &mut State) {
 
     // uut sends FIN
     let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&exp_fin, &state);
+    expect_segment(&state, &exp_fin);
 
     // tc sends ACK to the FIN
     let ack_to_fin =
@@ -811,7 +811,7 @@ fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
     // uut sends ACK to the FIN
     let exp_ack_to_fin =
         Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&exp_ack_to_fin, &state);
+    expect_segment(&state, &exp_ack_to_fin);
 
     // Since FIN has been received, 0 data is returned
     expect_read_with_buffer_len(state, b"", 123);
@@ -850,7 +850,7 @@ fn main_flow_send_from_tc(
 
     // Recv ACK from the uut
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&exp_ack, &state);
+    expect_segment(&state, &exp_ack);
 
     (send_seg, exp_ack)
 }
@@ -920,13 +920,13 @@ fn uut_write(state: &mut State, data: &[u8]) -> (u32, Segment) {
 
     // Recv from the tc
     let exp_seg = Segment::new(Ack, state.uut_seq_num, state.tc_seq_num, &data);
-    expect_segment(&exp_seg, &state);
+    expect_segment(&state, &exp_seg);
     state.uut_seq_num += len as u32;
 
     (len as u32, exp_seg)
 }
 
-fn expect_segment(exp_seg: &Segment, state: &State) {
+fn expect_segment(state: &State, exp_seg: &Segment) {
     let recv_seg = recv_segment(state);
     assert_eq!(exp_seg, &recv_seg);
 }
