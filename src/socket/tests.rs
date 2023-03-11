@@ -65,7 +65,6 @@ use crate::segment::Segment;
 // - ef: Cumulative ack, one byte more and one byte less
 //   than the border
 // - ef: close causes segment to be lost
-// - af: an ack doesn't casue ack back
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
