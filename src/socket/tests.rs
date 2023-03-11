@@ -745,8 +745,6 @@ fn af_tc_retransmits_data_and_fin() {
 // Tests:
 // uut retransmits FIN
 // uut retransmists FIN and data
-// tc retransmits FIN
-// tc retransmits FIN and data
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
