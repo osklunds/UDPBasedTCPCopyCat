@@ -87,7 +87,7 @@ struct ConnectedState {
     receive_next: u32,
     fin_sent: bool,
     fin_received: bool,
-    buffer: Vec<Segment>,
+    send_buffer: Vec<Segment>,
     recv_buffer: BTreeMap<u32, Segment>,
 }
 
@@ -159,7 +159,7 @@ impl Stream {
                     receive_next,
                     fin_sent: false,
                     fin_received: false,
-                    buffer: Vec::new(),
+                    send_buffer: Vec::new(),
                     recv_buffer: BTreeMap::new(),
                 };
 
@@ -467,7 +467,7 @@ async fn connected_loop<T: Timer>(
             _ = future_timeout => {
                 let locked_connected_state = state.lock().await;
 
-                for segment in &locked_connected_state.buffer {
+                for segment in &locked_connected_state.send_buffer {
                     send_segment(
                         &udp_socket,
                         udp_socket.peer_addr().unwrap(),
@@ -546,7 +546,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         send_ack(&state, &mut locked_connected_state, peer_addr).await;
     }
 
-    if locked_connected_state.buffer.is_empty()
+    if locked_connected_state.send_buffer.is_empty()
         && locked_connected_state.fin_sent
         && locked_connected_state.fin_received
     {
@@ -564,7 +564,7 @@ async fn handle_retransmissions_at_ack_recv(
     locked_connected_state: &mut LockedConnectedState<'_>,
     state: &RecvSocketState<'_>,
 ) -> bool {
-    let buffer = &mut locked_connected_state.buffer;
+    let buffer = &mut locked_connected_state.send_buffer;
 
     let buffer_len_before = buffer.len();
     removed_acked_segments(ack_num, buffer);
@@ -700,7 +700,7 @@ async fn recv_user_action_rx(
                     send_segment(state.udp_socket, peer_addr, &seg).await;
 
                     locked_connected_state.send_next += 1;
-                    locked_connected_state.buffer.push(seg);
+                    locked_connected_state.send_buffer.push(seg);
 
                     locked_connected_state.fin_sent = true;
                 }
@@ -717,7 +717,7 @@ async fn recv_user_action_rx(
                         send_segment(state.udp_socket, peer_addr, &seg).await;
 
                         locked_connected_state.send_next += chunk.len() as u32;
-                        locked_connected_state.buffer.push(seg);
+                        locked_connected_state.send_buffer.push(seg);
                     }
                 }
                 UserAction::Close => {
