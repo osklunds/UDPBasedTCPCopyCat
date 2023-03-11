@@ -71,13 +71,13 @@ use crate::segment::Segment;
 ////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn test_connect_shutdown() {
+fn mf_connect_shutdown() {
     let state = setup_connected_uut_client();
     shutdown(state);
 }
 
 #[test]
-fn test_shutdown_tc_before_uut() {
+fn mf_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data to write");
@@ -89,7 +89,7 @@ fn test_shutdown_tc_before_uut() {
 }
 
 #[test]
-fn test_shutdown_tc_before_uut_write_after_shutdown() {
+fn mf_shutdown_tc_before_uut_write_after_shutdown() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data to write");
@@ -105,7 +105,7 @@ fn test_shutdown_tc_before_uut_write_after_shutdown() {
 }
 
 #[test]
-fn test_shutdown_uut_before_tc_read_after_shutdown() {
+fn mf_shutdown_uut_before_tc_read_after_shutdown() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data to write");
@@ -121,7 +121,7 @@ fn test_shutdown_uut_before_tc_read_after_shutdown() {
 }
 
 #[test]
-fn test_close() {
+fn mf_close() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"some data");
@@ -132,7 +132,7 @@ fn test_close() {
 }
 
 #[test]
-fn test_client_read_once() {
+fn mf_client_read_once() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"some data");
@@ -141,7 +141,7 @@ fn test_client_read_once() {
 }
 
 #[test]
-fn test_client_read_multiple_times() {
+fn mf_client_read_multiple_times() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"first rweouinwrte");
@@ -159,7 +159,7 @@ fn test_client_read_multiple_times() {
 }
 
 #[test]
-fn test_client_write_once() {
+fn mf_client_write_once() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data");
@@ -168,7 +168,7 @@ fn test_client_write_once() {
 }
 
 #[test]
-fn test_client_write_multiple_times() {
+fn mf_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"first agfs");
@@ -186,7 +186,7 @@ fn test_client_write_multiple_times() {
 }
 
 #[test]
-fn test_client_reads_and_writes() {
+fn mf_client_reads_and_writes() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"first");
@@ -207,7 +207,7 @@ fn test_client_reads_and_writes() {
 // TODO: Idea: when all test cases need a state parameter anyway, try
 // to chain them together, running one scenario after the other
 #[test]
-fn test_client_write_retransmit_due_to_timeout() {
+fn af_client_write_retransmit_due_to_timeout() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -237,7 +237,7 @@ fn test_client_write_retransmit_due_to_timeout() {
 }
 
 #[test]
-fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
+fn af_client_write_retransmit_multiple_segments_due_to_timeout() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -295,7 +295,7 @@ fn test_client_write_retransmit_multiple_segments_due_to_timeout() {
 }
 
 #[test]
-fn test_client_write_retransmit_due_to_old_ack() {
+fn af_client_write_retransmit_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -345,7 +345,7 @@ fn test_client_write_retransmit_due_to_old_ack() {
 }
 
 #[test]
-fn test_first_segment_acked_but_not_second() {
+fn af_first_segment_acked_but_not_second() {
     let mut state = setup_connected_uut_client();
     let initial_uut_seq_num = state.uut_seq_num;
 
@@ -382,7 +382,7 @@ fn test_first_segment_acked_but_not_second() {
 }
 
 #[test]
-fn test_cumulative_ack() {
+fn af_cumulative_ack() {
     let mut state = setup_connected_uut_client();
     let initial_uut_seq_num = state.uut_seq_num;
 
@@ -406,7 +406,7 @@ fn test_cumulative_ack() {
 }
 
 #[test]
-fn test_multi_segment_write() {
+fn af_multi_segment_write() {
     let mut state = setup_connected_uut_client();
 
     // Generate some long data to write
@@ -456,7 +456,7 @@ fn random_data_of_length(length: u32) -> Vec<u8> {
 }
 
 #[test]
-fn test_same_segment_carries_data_and_acks() {
+fn af_same_segment_carries_data_and_acks() {
     let mut state = setup_connected_uut_client();
 
     // Send some data from uut
@@ -472,7 +472,7 @@ fn test_same_segment_carries_data_and_acks() {
 }
 
 #[test]
-fn test_out_of_order_segment() {
+fn af_out_of_order_segment() {
     let mut state = setup_connected_uut_client();
 
     let data1 = b"some data";
@@ -510,7 +510,7 @@ fn test_out_of_order_segment() {
 }
 
 #[test]
-fn test_multiple_out_of_order_segments() {
+fn af_multiple_out_of_order_segments() {
     let mut state = setup_connected_uut_client();
 
     let mut segments = Vec::new();
@@ -589,7 +589,7 @@ fn test_multiple_out_of_order_segments() {
 }
 
 #[test]
-fn test_out_of_order_receive_buffer_full() {
+fn af_out_of_order_receive_buffer_full() {
     let mut state = setup_connected_uut_client();
 
     let mut segments = Vec::new();
@@ -638,7 +638,7 @@ fn test_out_of_order_receive_buffer_full() {
 }
 
 #[test]
-fn test_retransmission_of_data() {
+fn af_retransmission_of_data() {
     let mut state = setup_connected_uut_client();
 
     let (sent_seg, received_ack) =
@@ -653,7 +653,7 @@ fn test_retransmission_of_data() {
 }
 
 #[test]
-fn test_retransmission_of_fin() {
+fn af_retransmission_of_fin() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"some data");
@@ -670,7 +670,7 @@ fn test_retransmission_of_fin() {
 }
 
 #[test]
-fn test_too_small_read_buffer() {
+fn af_too_small_read_buffer() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_read(&mut state, b"some intial data");
