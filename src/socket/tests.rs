@@ -62,10 +62,10 @@ use crate::segment::Segment;
 // }
 
 // Test cases needed:
-// - Cumulative ack, one byte more and one byte less
+// - ef: Cumulative ack, one byte more and one byte less
 //   than the border
-// - shutdown an retransmissions one side at a time
-// - close causes segment to be lost
+// - af: shutdown an retransmissions one side at a time
+// - ef: close causes segment to be lost
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
