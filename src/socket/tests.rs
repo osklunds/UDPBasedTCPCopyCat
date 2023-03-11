@@ -66,8 +66,6 @@ use crate::segment::Segment;
 //   than the border
 // - shutdown an retransmissions one side at a time
 // - close causes segment to be lost
-// - buf too small, i.e. need to have a field in ClientStream for storing
-//   potentially data received on last channel read.
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
