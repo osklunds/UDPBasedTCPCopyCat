@@ -64,7 +64,6 @@ use crate::segment::Segment;
 // Test cases needed:
 // - ef: Cumulative ack, one byte more and one byte less
 //   than the border
-// - af: shutdown an retransmissions one side at a time
 // - ef: close causes segment to be lost
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -690,6 +689,12 @@ fn test_too_small_read_buffer() {
 
     shutdown(state);
 }
+
+// Tests:
+// uut retransmits FIN
+// uut retransmists FIN and data
+// tc retransmits FIN
+// tc retransmits FIN and data
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
