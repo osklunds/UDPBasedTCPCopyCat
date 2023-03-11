@@ -659,13 +659,35 @@ fn af_too_small_read_buffer() {
 }
 
 #[test]
-fn af_tc_retransmits_data() {
+fn af_tc_retransmits_one_segment() {
     let mut state = setup_connected_uut_client();
 
     let (sent_seg, received_ack) =
         main_flow_uut_read(&mut state, b"some data to read");
     send_segment(&mut state, &sent_seg);
     expect_segment(&state, &received_ack);
+
+    main_flow_uut_read(&mut state, b"some other data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    shutdown(state);
+}
+
+#[test]
+fn af_tc_retransmits_multiple_segments() {
+    let mut state = setup_connected_uut_client();
+
+    let (sent_seg1, _received_ack1) =
+        main_flow_uut_read(&mut state, b"some data to read");
+
+    let (sent_seg2, received_ack2) =
+        main_flow_uut_read(&mut state, b"other data being read");
+
+    // Note that it's always the latest ack being sent
+    send_segment(&mut state, &sent_seg1);
+    expect_segment(&state, &received_ack2);
+    send_segment(&mut state, &sent_seg2);
+    expect_segment(&state, &received_ack2);
 
     main_flow_uut_read(&mut state, b"some other data");
     main_flow_uut_write(&mut state, b"some data to write");
