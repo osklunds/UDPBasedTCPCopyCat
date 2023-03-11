@@ -662,8 +662,11 @@ fn af_too_small_read_buffer() {
 fn af_tc_retransmits_one_segment() {
     let mut state = setup_connected_uut_client();
 
+    // Send some data
     let (sent_seg, received_ack) =
         main_flow_uut_read(&mut state, b"some data to read");
+
+    // Re-transmit the segment and get the same ack
     send_segment(&mut state, &sent_seg);
     expect_segment(&state, &received_ack);
 
@@ -677,9 +680,9 @@ fn af_tc_retransmits_one_segment() {
 fn af_tc_retransmits_multiple_segments() {
     let mut state = setup_connected_uut_client();
 
+    // Send two data segments
     let (sent_seg1, _received_ack1) =
         main_flow_uut_read(&mut state, b"some data to read");
-
     let (sent_seg2, received_ack2) =
         main_flow_uut_read(&mut state, b"other data being read");
 
@@ -702,9 +705,36 @@ fn af_tc_retransmits_fin() {
     main_flow_uut_read(&mut state, b"some data");
     main_flow_uut_write(&mut state, b"some data to write");
 
+    // Send FIN
     let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
+
+    // Re-transmit the FIN and get the same ack
     send_segment(&mut state, &sent_fin);
     expect_segment(&state, &received_ack);
+
+    main_flow_uut_write(&mut state, b"some other data to write");
+
+    main_flow_uut_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn af_tc_retransmits_data_and_fin() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    // Send some data and a FIN
+    let (sent_data_seg, _received_data_ack) =
+        main_flow_uut_read(&mut state, b"some data to read");
+    let (sent_fin, received_fin_ack) = main_flow_tc_shutdown(&mut state);
+
+    // Re-transmit the data and FIN
+    send_segment(&mut state, &sent_data_seg);
+    expect_segment(&state, &received_fin_ack);
+    send_segment(&mut state, &sent_fin);
+    expect_segment(&state, &received_fin_ack);
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
