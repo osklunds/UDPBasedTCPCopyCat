@@ -491,7 +491,7 @@ fn test_out_of_order_segment() {
     let exp_ack = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&exp_ack, &state);
 
-    // TODO: Check that uut read fails
+    expect_read_no_data(&mut state);
 
     send_segment(&state, &seg1);
 
