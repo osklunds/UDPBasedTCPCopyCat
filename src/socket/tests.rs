@@ -638,38 +638,6 @@ fn af_out_of_order_receive_buffer_full() {
 }
 
 #[test]
-fn af_retransmission_of_data() {
-    let mut state = setup_connected_uut_client();
-
-    let (sent_seg, received_ack) =
-        main_flow_uut_read(&mut state, b"some data to read");
-    send_segment(&mut state, &sent_seg);
-    expect_segment(&state, &received_ack);
-
-    main_flow_uut_read(&mut state, b"some other data");
-    main_flow_uut_write(&mut state, b"some data to write");
-
-    shutdown(state);
-}
-
-#[test]
-fn af_retransmission_of_fin() {
-    let mut state = setup_connected_uut_client();
-
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data to write");
-
-    let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
-    send_segment(&mut state, &sent_fin);
-    expect_segment(&state, &received_ack);
-
-    main_flow_uut_write(&mut state, b"some other data to write");
-
-    main_flow_uut_shutdown(&mut state);
-    wait_shutdown_complete(state);
-}
-
-#[test]
 fn af_too_small_read_buffer() {
     let mut state = setup_connected_uut_client();
 
@@ -688,6 +656,38 @@ fn af_too_small_read_buffer() {
     main_flow_uut_read(&mut state, b"more data in the end");
 
     shutdown(state);
+}
+
+#[test]
+fn af_tc_retransmits_data() {
+    let mut state = setup_connected_uut_client();
+
+    let (sent_seg, received_ack) =
+        main_flow_uut_read(&mut state, b"some data to read");
+    send_segment(&mut state, &sent_seg);
+    expect_segment(&state, &received_ack);
+
+    main_flow_uut_read(&mut state, b"some other data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    shutdown(state);
+}
+
+#[test]
+fn af_tc_retransmits_fin() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_read(&mut state, b"some data");
+    main_flow_uut_write(&mut state, b"some data to write");
+
+    let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
+    send_segment(&mut state, &sent_fin);
+    expect_segment(&state, &received_ack);
+
+    main_flow_uut_write(&mut state, b"some other data to write");
+
+    main_flow_uut_shutdown(&mut state);
+    wait_shutdown_complete(state);
 }
 
 // Tests:
