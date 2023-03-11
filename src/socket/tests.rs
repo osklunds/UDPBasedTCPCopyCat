@@ -505,7 +505,7 @@ fn test_out_of_order_segment() {
 
     state.tc_seq_num += len1 + len2;
 
-    expect_read(&[data1, data2], &mut state);
+    expect_read(&mut state, &[data1, data2]);
 
     shutdown(state);
 }
@@ -834,7 +834,7 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     let segments = main_flow_send_from_tc(state, data);
 
     // Check that the uut received the correct data
-    expect_read(&[data], state);
+    expect_read(state, &[data]);
 
     segments
 }
@@ -861,10 +861,10 @@ where
 {
     let exp_datas: Vec<_> =
         segments.into_iter().map(|seg| seg.data()).collect();
-    expect_read(&exp_datas, state);
+    expect_read(state, &exp_datas);
 }
 
-fn expect_read(exp_datas: &[&[u8]], state: &mut State) {
+fn expect_read(state: &mut State, exp_datas: &[&[u8]]) {
     let mut all_exp_data = Vec::new();
 
     for exp_data in exp_datas {
