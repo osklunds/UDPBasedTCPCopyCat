@@ -531,7 +531,6 @@ fn test_multiple_out_of_order_segments() {
 
     let ack_base = Segment::new_empty(Ack, state.uut_seq_num, state.tc_seq_num);
 
-    // TODO: Make arg order consistent
     // |  2      |
     send_segment(&state, &segments[2]);
     expect_segment(&state, &ack_base);
