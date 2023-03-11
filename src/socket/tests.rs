@@ -682,10 +682,10 @@ fn test_too_small_read_buffer() {
     main_flow_send_from_tc(&mut state, data);
 
     // Read into a small buffer, not everything fits
-    expect_read_with_buffer_len(b"Some_", 5, &mut state);
+    expect_read_with_buffer_len(&mut state, b"Some_", 5);
 
     // Read the rest
-    expect_read_with_buffer_len(b"data", 10, &mut state);
+    expect_read_with_buffer_len(&mut state, b"data", 10);
 
     main_flow_uut_read(&mut state, b"more data in the end");
 
@@ -814,7 +814,7 @@ fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
     expect_segment(&exp_ack_to_fin, &state);
 
     // Since FIN has been received, 0 data is returned
-    expect_read_with_buffer_len(b"", 123, state);
+    expect_read_with_buffer_len(state, b"", 123);
     // TODO: The code below triggers RecvError. Use it for a future test.
     // let mut buf = [0; 123];
     // let buf_before = buf.clone();
@@ -879,9 +879,9 @@ fn expect_read(state: &mut State, exp_datas: &[&[u8]]) {
 }
 
 fn expect_read_with_buffer_len(
+    state: &mut State,
     exp_data: &[u8],
     buffer_len: usize,
-    state: &mut State,
 ) {
     let mut buf = vec![0; buffer_len];
     let read_len = uut_stream(state).read(&mut buf).unwrap();
