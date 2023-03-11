@@ -65,6 +65,7 @@ use crate::segment::Segment;
 // - ef: Cumulative ack, one byte more and one byte less
 //   than the border
 // - ef: close causes segment to be lost
+// - af: an ack doesn't casue ack back
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
@@ -742,6 +743,27 @@ fn af_tc_retransmits_data_and_fin() {
     wait_shutdown_complete(state);
 }
 
+#[test]
+fn af_ack_does_not_cause_ack_to_be_sent() {
+    let mut state = setup_connected_uut_client();
+
+    let (sent_ack1, _received_data_seg1) =
+        main_flow_uut_write(&mut state, b"datadatadata");
+    let (sent_ack2, _received_data_seg2) =
+        main_flow_uut_write(&mut state, b"some other data to write");
+
+    send_segment(&state, &sent_ack1);
+    recv_check_no_data(&state.tc_socket);
+
+    send_segment(&state, &sent_ack2);
+    recv_check_no_data(&state.tc_socket);
+
+    main_flow_uut_write(&mut state, b"other");
+    main_flow_uut_read(&mut state, b"some data");
+
+    shutdown(state);
+}
+
 // Tests:
 // uut retransmits FIN
 // uut retransmists FIN and data
@@ -953,17 +975,19 @@ fn expect_read_no_data(state: &mut State) {
     assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
 }
 
-fn main_flow_uut_write(state: &mut State, data: &[u8]) {
+fn main_flow_uut_write(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Send from the uut
     state.timer.expect_call_to_sleep();
-    uut_write(state, data);
+    let (_len, recv_data_seg) = uut_write(state, data);
     state.timer.wait_for_call_to_sleep();
 
     // Send ack from the tc
-    let send_seg = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
-    send_segment(&state, &send_seg);
+    let send_ack = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &send_ack);
 
     recv_check_no_data(&state.tc_socket);
+
+    (send_ack, recv_data_seg)
 }
 
 fn uut_write(state: &mut State, data: &[u8]) -> (u32, Segment) {
