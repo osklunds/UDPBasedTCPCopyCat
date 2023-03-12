@@ -819,7 +819,6 @@ struct State {
 fn test_end_check(state: &mut State) {
     // To catch late calls to the timer
     std::thread::sleep(Duration::from_millis(1));
-    recv_check_no_data(&mut state.tc_socket);
     assert!(state.uut_stream.is_none());
     // TODO: Check that all buffers empty
 }
@@ -883,7 +882,17 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 // so all data was received
 // Perhaps also add a poll function to check if closing state
 fn shutdown(mut state: State) {
+    // Check that the test case has read all data
     expect_read_no_data(&mut state);
+
+    // And received all segments
+    recv_check_no_data(&state.tc_socket);
+
+    // Read and write some data to check that the uut is still working
+    main_flow_uut_read(&mut state, b"final data to read");
+    main_flow_uut_write(&mut state, b"final data to write");
+
+    // Then do the shutdown
     main_flow_uut_shutdown(&mut state);
     main_flow_tc_shutdown(&mut state);
     wait_shutdown_complete(state);
