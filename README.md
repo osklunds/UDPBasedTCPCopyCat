@@ -6,6 +6,7 @@ My own simplified TCP-like protocol that runs over UDP.
 
 - Alternative flow tests for client connect
 - Alternative flow tests for shutdown
+- Test that if timer triggers when timer no longer relevant, nothing happens
 - Clean up client code
 - Clean up Segment
 - Enable more warnings

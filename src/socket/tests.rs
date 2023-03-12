@@ -207,7 +207,7 @@ fn mf_client_reads_and_writes() {
 // TODO: Idea: when all test cases need a state parameter anyway, try
 // to chain them together, running one scenario after the other
 #[test]
-fn af_client_write_retransmit_due_to_timeout() {
+fn af_uut_retransmits_data_due_to_timeout() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -237,7 +237,7 @@ fn af_client_write_retransmit_due_to_timeout() {
 }
 
 #[test]
-fn af_client_write_retransmit_multiple_segments_due_to_timeout() {
+fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -295,7 +295,7 @@ fn af_client_write_retransmit_multiple_segments_due_to_timeout() {
 }
 
 #[test]
-fn af_client_write_retransmit_due_to_old_ack() {
+fn af_client_retransmits_data_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
 
     // Send some data successfully. This is to check that this data
@@ -342,6 +342,42 @@ fn af_client_write_retransmit_due_to_old_ack() {
     send_segment(&state, &send_ack2);
 
     shutdown(state);
+}
+
+#[test]
+fn af_uut_retransmits_fin() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    main_flow_uut_write(&mut state, b"some data");
+
+    let initial_uut_seq_num = state.uut_seq_num;
+
+    // Send FIN from uut
+    state.timer.expect_call_to_sleep();
+    uut_stream(&mut state).shutdown();
+    state.timer.wait_for_call_to_sleep();
+
+    let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    expect_segment(&state, &exp_fin);
+
+    // tc pretends it didn't get the FIN by not sending an ACK. Instead,
+    // the timeout expires
+    state.timer.trigger_and_expect_new_call();
+    state.timer.wait_for_call_to_sleep();
+
+    expect_segment(&state, &exp_fin);
+
+    let ack =
+        Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + 1);
+    send_segment(&state, &ack);
+    state.uut_seq_num += 1;
+
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    main_flow_tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
 }
 
 #[test]
@@ -659,7 +695,7 @@ fn af_too_small_read_buffer() {
 }
 
 #[test]
-fn af_tc_retransmits_one_segment() {
+fn af_tc_retransmits_data() {
     let mut state = setup_connected_uut_client();
 
     // Send some data
@@ -677,7 +713,7 @@ fn af_tc_retransmits_one_segment() {
 }
 
 #[test]
-fn af_tc_retransmits_multiple_segments() {
+fn af_tc_retransmits_multiple_data_segments() {
     let mut state = setup_connected_uut_client();
 
     // Send two data segments
