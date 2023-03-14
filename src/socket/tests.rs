@@ -374,7 +374,54 @@ fn af_uut_retransmits_fin() {
     send_segment(&state, &ack);
     state.uut_seq_num += 1;
 
-    main_flow_uut_read(&mut state, b"some data to read");
+    main_flow_tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn af_uut_retransmits_data_and_fin() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    main_flow_uut_write(&mut state, b"some initial data");
+
+    let initial_uut_seq_num = state.uut_seq_num;
+
+    // Send data from uut
+    state.timer.expect_call_to_sleep();
+    let (len, recv_data_seg) = uut_write(&mut state, b"some data");
+    state.timer.wait_for_call_to_sleep();
+
+    // Send FIN from uut
+    uut_stream(&mut state).shutdown();
+
+    // TODO: Make uut_shutdown helper
+    let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    expect_segment(&state, &exp_fin);
+
+    // tc pretends it didn't get the data or FIN, so the timer expires
+    state.timer.trigger_and_expect_new_call();
+    state.timer.wait_for_call_to_sleep();
+
+    expect_segment(&state, &recv_data_seg);
+    expect_segment(&state, &exp_fin);
+
+    let data_seg_ack =
+        Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
+    let fin_ack = Segment::new_empty(
+        Fin,
+        state.tc_seq_num,
+        initial_uut_seq_num + len + 1,
+    );
+
+    // Timer restarted because FIN is still not acked
+    state.timer.expect_call_to_sleep();
+    send_segment(&state, &data_seg_ack);
+    state.timer.wait_for_call_to_sleep();
+
+    send_segment(&state, &fin_ack);
+    state.uut_seq_num += len + 1;
 
     main_flow_tc_shutdown(&mut state);
     wait_shutdown_complete(state);

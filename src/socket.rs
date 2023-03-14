@@ -533,6 +533,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     assert!(kind == Fin || kind == Ack);
     if kind == Ack && len == 0 {
         // Do nothing for a pure ACK
+        // TODO: Test off by one
     } else if seq_num < locked_connected_state.receive_next {
         // Ignore if too old
     } else {
@@ -565,7 +566,6 @@ async fn handle_retransmissions_at_ack_recv(
     state: &RecvSocketState<'_>,
 ) -> bool {
     let buffer = &mut locked_connected_state.send_buffer;
-
     let buffer_len_before = buffer.len();
     removed_acked_segments(ack_num, buffer);
     let buffer_len_after = buffer.len();
@@ -590,8 +590,17 @@ async fn handle_retransmissions_at_ack_recv(
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
+        // TODO: Need to investigate if tc should send ack_num+1
+        println!(
+            "BUFFER {:?} ack_num {:?}, len {:?}",
+            buffer,
+            ack_num,
+            first_unacked_segment.data().len()
+        );
+        // TODO: Check > vs >= with tests. It was caught thanks to FIN being 1
+        // But a test with one-length data is needed to catch other off-by-one
         if ack_num
-            >= first_unacked_segment.seq_num()
+            > first_unacked_segment.seq_num()
                 + first_unacked_segment.data().len() as u32
         {
             buffer.remove(0);
