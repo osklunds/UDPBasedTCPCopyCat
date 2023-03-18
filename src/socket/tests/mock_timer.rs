@@ -33,22 +33,20 @@ impl MockTimer {
     }
 
     pub fn expect_forever_sleep(&self) {
-        self.expect_call(SleepDuration::Forever);
+        block_on(self.expect_call(SleepDuration::Forever));
     }
 
     pub fn expect_sleep(&self) {
-        self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
+        block_on(self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER)));
     }
 
-    fn expect_call(&self, duration: SleepDuration) {
-        block_on(async {
-            let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(
-                locked_sleep_expected.is_none(),
-                "Expect sleep called, but sleep already expected"
-            );
-            *locked_sleep_expected = Some(duration);
-        });
+    async fn expect_call(&self, duration: SleepDuration) {
+        let mut locked_sleep_expected = self.sleep_expected.lock().await;
+        assert!(
+            locked_sleep_expected.is_none(),
+            "Expect sleep called, but sleep already expected"
+        );
+        *locked_sleep_expected = Some(duration);
     }
 
     pub fn wait_for_call_to_sleep(&self) {
@@ -66,14 +64,7 @@ impl MockTimer {
 
     pub fn trigger_and_expect_new_call(&self) {
         block_on(async {
-            let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(
-                locked_sleep_expected.is_none(),
-                "Trigger and expect new called, but sleep already expected"
-            );
-            *locked_sleep_expected =
-                Some(SleepDuration::Finite(RETRANSMISSION_TIMER));
-
+            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER)).await;
             self.let_sleep_return_tx.try_send(()).unwrap();
         });
     }
