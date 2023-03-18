@@ -43,7 +43,10 @@ impl MockTimer {
     fn expect_call(&self, duration: SleepDuration) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(locked_sleep_expected.is_none());
+            assert!(
+                locked_sleep_expected.is_none(),
+                "Expect sleep called, but sleep already expected"
+            );
             *locked_sleep_expected = Some(duration);
         });
     }
@@ -64,7 +67,10 @@ impl MockTimer {
     pub fn trigger_and_expect_new_call(&self) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(locked_sleep_expected.is_none());
+            assert!(
+                locked_sleep_expected.is_none(),
+                "Trigger and expect new called, but sleep already expected"
+            );
             *locked_sleep_expected =
                 Some(SleepDuration::Finite(RETRANSMISSION_TIMER));
 
@@ -77,11 +83,17 @@ impl MockTimer {
             // First check that the TC hasn't expected any sleep that hasn't
             // been executed yet
             let locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(locked_sleep_expected.is_none());
+            assert!(
+                locked_sleep_expected.is_none(),
+                "In test end check, a call to sleep is expected to happen"
+            );
 
             // Then check that no sleep has been made that the TC hasn't
             // waited for
-            assert!(self.sleep_called_rx.is_empty());
+            assert!(
+                self.sleep_called_rx.is_empty(),
+                "In test end check, a call to sleep has been made that the tc has not waited for"
+            );
 
             // Finally let the sleep return so that a retransmission of
             // everything in the buffer is done, so that non empty
@@ -95,7 +107,11 @@ impl MockTimer {
 impl Timer for MockTimer {
     async fn sleep(&self, duration: SleepDuration) {
         let mut locked_sleep_expected = self.sleep_expected.lock().await;
-        assert_eq!(*locked_sleep_expected, Some(duration));
+        assert_eq!(
+            *locked_sleep_expected,
+            Some(duration),
+            "Sleep called with unexpected argument"
+        );
         *locked_sleep_expected = None;
         drop(locked_sleep_expected);
 
