@@ -204,7 +204,7 @@ fn mf_shutdown_tc_before_uut() {
     main_flow_uut_read(&mut state, b"some data to read");
 
     main_flow_tc_shutdown(&mut state);
-    main_flow_uut_shutdown(&mut state);
+    main_flow_uut_shutdown_last(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -219,7 +219,7 @@ fn mf_shutdown_tc_before_uut_write_after_shutdown() {
 
     // tc side has sent FIN. But uut hasn't, so uut can still write
     main_flow_uut_write(&mut state, b"some data");
-    main_flow_uut_shutdown(&mut state);
+    main_flow_uut_shutdown_last(&mut state);
 
     wait_shutdown_complete(state);
 }
@@ -1044,6 +1044,31 @@ fn main_flow_uut_shutdown(state: &mut State) {
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
     send_segment(&state, &ack_to_fin);
     state.timer.wait_for_call_to_sleep();
+    state.uut_seq_num += 1;
+}
+
+// TODO: Make these two use a common helper
+fn main_flow_uut_shutdown_last(state: &mut State) {
+    // To make sure the buffer is empty so that a new timer call
+    // will be made
+    thread::sleep(Duration::from_millis(1));
+
+    state.timer.expect_sleep();
+    uut_stream(state).shutdown();
+    state.timer.wait_for_call_to_sleep();
+
+    // Since FIN has been sent, write fails
+    let write_result = uut_stream(state).write(b"some data");
+    assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
+
+    // uut sends FIN
+    let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
+    expect_segment(&state, &exp_fin);
+
+    // tc sends ACK to the FIN
+    let ack_to_fin =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
+    send_segment(&state, &ack_to_fin);
     state.uut_seq_num += 1;
 }
 
