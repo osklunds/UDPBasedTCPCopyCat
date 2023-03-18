@@ -958,6 +958,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     let timer = Arc::new(MockTimer::new());
     let timer_cloned = Arc::clone(&timer);
     let tc_addr = tc_socket.local_addr().unwrap();
+    timer.expect_forever_sleep();
     let join_handle = thread::Builder::new()
         .name("connect client".to_string())
         .spawn(move || {
@@ -983,6 +984,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     assert_eq!(tc_seq_num, ack.ack_num());
 
     let mut uut_stream = join_handle.join().unwrap();
+    timer.wait_for_call_to_sleep();
     uut_stream.set_read_timeout(Some(Duration::from_millis(2)));
 
     State {
@@ -1037,9 +1039,11 @@ fn main_flow_uut_shutdown(state: &mut State) {
     expect_segment(&state, &exp_fin);
 
     // tc sends ACK to the FIN
+    state.timer.expect_forever_sleep();
     let ack_to_fin =
         Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
     send_segment(&state, &ack_to_fin);
+    state.timer.wait_for_call_to_sleep();
     state.uut_seq_num += 1;
 }
 
@@ -1147,8 +1151,10 @@ fn main_flow_uut_write(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     state.timer.wait_for_call_to_sleep();
 
     // Send ack from the tc
+    state.timer.expect_forever_sleep();
     let send_ack = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &send_ack);
+    state.timer.wait_for_call_to_sleep();
 
     recv_check_no_data(&state.tc_socket);
 

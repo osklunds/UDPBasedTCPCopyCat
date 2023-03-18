@@ -101,7 +101,7 @@ impl Timer for MockTimer {
         assert_eq!(
             *locked_sleep_expected,
             Some(duration),
-            "Sleep called with unexpected argument"
+            "Unexpected call to sleep or unexpected argument"
         );
         *locked_sleep_expected = None;
         drop(locked_sleep_expected);
