@@ -33,19 +33,18 @@ impl MockTimer {
     }
 
     pub fn expect_forever_sleep(&self) {
-        block_on(async {
-            let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(locked_sleep_expected.is_none());
-            *locked_sleep_expected = Some(SleepDuration::Forever);
-        });
+        self.expect_call(SleepDuration::Forever);
     }
 
     pub fn expect_sleep(&self) {
+        self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
+    }
+
+    fn expect_call(&self, duration: SleepDuration) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
             assert!(locked_sleep_expected.is_none());
-            *locked_sleep_expected =
-                Some(SleepDuration::Finite(RETRANSMISSION_TIMER));
+            *locked_sleep_expected = Some(duration);
         });
     }
 
