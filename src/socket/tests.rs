@@ -70,6 +70,45 @@ use crate::segment::Segment;
 // Main flow test cases
 ////////////////////////////////////////////////////////////////////////////////
 
+// All test cases manage sequence numbers semi-automatically. So verify them
+// explicitely here.
+#[test]
+fn mf_explicit_sequence_numbers() {
+    let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let tc_socket = UdpSocket::bind(tc_addr).unwrap();
+    tc_socket
+        .set_read_timeout(Some(Duration::from_millis(2)))
+        .unwrap();
+
+    // Connect
+    let timer = Arc::new(MockTimer::new());
+    let timer_cloned = Arc::clone(&timer);
+    let tc_addr = tc_socket.local_addr().unwrap();
+    let join_handle = thread::Builder::new()
+        .name("connect client".to_string())
+        .spawn(move || {
+            Stream::connect_custom(timer_cloned, tc_addr, 1000).unwrap()
+        })
+        .unwrap();
+
+    // Receive SYN
+    let (syn, uut_addr) = recv_segment_with_addr(&tc_socket);
+    let exp_syn = Segment::new_empty(Syn, 1000, 0);
+    assert_eq!(exp_syn, syn);
+
+    // Send SYN-ACK
+    let syn_ack = Segment::new_empty(SynAck, 2000, 1001);
+    send_segment_to(&tc_socket, uut_addr, &syn_ack);
+
+    // Receive ACK
+    let ack = recv_segment_from(&tc_socket, uut_addr);
+    let exp_ack = Segment::new_empty(Ack, 1001, 2001);
+    assert_eq!(exp_ack, ack);
+
+    let mut uut_stream = join_handle.join().unwrap();
+    uut_stream.set_read_timeout(Some(Duration::from_millis(2)));
+}
+
 #[test]
 fn mf_connect_shutdown() {
     let state = setup_connected_uut_client();
