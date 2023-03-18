@@ -25,15 +25,28 @@ const MAXIMUM_RECV_BUFFER_SIZE: usize = 10;
 
 #[async_trait]
 trait Timer {
-    async fn sleep(&self, duration: Duration);
+    async fn sleep(&self, duration: SleepDuration);
+}
+
+#[derive(Debug, PartialEq)]
+enum SleepDuration {
+    Finite(Duration),
+    Forever
 }
 
 struct PlainTimer {}
 
 #[async_trait]
 impl Timer for PlainTimer {
-    async fn sleep(&self, duration: Duration) {
-        async_std::task::sleep(duration).await;
+    async fn sleep(&self, duration: SleepDuration) {
+        match duration {
+            SleepDuration::Finite(duration) => {
+                async_std::task::sleep(duration).await;
+            },
+            SleepDuration::Forever => {
+                async_std::task::sleep(Duration::from_secs(1000000000)).await;
+            }
+        }
     }
 }
 
@@ -485,9 +498,10 @@ async fn connected_loop<T: Timer>(
 
 async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
     if forever {
-        async_std::task::sleep(Duration::from_secs(1000000000)).await;
+        timer.sleep(SleepDuration::Forever).await;
+        panic!("Forever sleep returned");
     } else {
-        timer.sleep(RETRANSMISSION_TIMER).await;
+        timer.sleep(SleepDuration::Finite(RETRANSMISSION_TIMER)).await;
     }
 }
 
