@@ -117,7 +117,8 @@ fn mf_explicit_sequence_numbers() {
     timer.expect_call_to_sleep();
     uut_stream.write(b"hello").unwrap();
     timer.wait_for_call_to_sleep();
-    // Idea: expect timer cancel
+    // TODO: expect timer cancel
+    // TODO: Simultaneous FIN
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
@@ -136,6 +137,34 @@ fn mf_explicit_sequence_numbers() {
     let exp_ack_read1 = Segment::new_empty(Ack, 1006, 2015);
     let ack_read1 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_ack_read1, ack_read1);
+
+    //////////////////////////////////////////////////////////////////
+    // Shutdown from uut
+    //////////////////////////////////////////////////////////////////
+
+    timer.expect_call_to_sleep();
+    uut_stream.shutdown();
+    timer.wait_for_call_to_sleep();
+
+    let exp_fin = Segment::new_empty(Fin, 1006, 2015);
+    let fin_from_uut = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_fin, fin_from_uut);
+
+    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1007);
+    send_segment_to(&tc_socket, uut_addr, &ack_to_fin_from_uut);
+
+    //////////////////////////////////////////////////////////////////
+    // Shutdown from tc
+    //////////////////////////////////////////////////////////////////
+
+    let fin_from_tc = Segment::new_empty(Fin, 2015, 1007);
+    send_segment_to(&tc_socket, uut_addr, &fin_from_tc);
+
+    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1007, 2016);
+    let ack_to_fin_from_tc = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
+
+    uut_stream.wait_shutdown_complete();
 }
 
 #[test]
