@@ -6,10 +6,10 @@ use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use std::time::Duration;
 
-use crate::socket::{Timer, RETRANSMISSION_TIMER, SleepDuration};
+use crate::socket::{SleepDuration, Timer, RETRANSMISSION_TIMER};
 
 pub struct MockTimer {
-    sleep_expected: Mutex<bool>,
+    sleep_expected: Mutex<Option<SleepDuration>>,
     sleep_called_tx: Sender<()>,
     sleep_called_rx: Receiver<()>,
     let_sleep_return_tx: Sender<()>,
@@ -18,7 +18,7 @@ pub struct MockTimer {
 
 impl MockTimer {
     pub fn new() -> Self {
-        let sleep_expected = Mutex::new(false);
+        let sleep_expected = Mutex::new(None);
         let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
         let (let_sleep_return_tx, let_sleep_return_rx) =
             async_channel::bounded(1);
@@ -32,11 +32,20 @@ impl MockTimer {
         }
     }
 
+    pub fn expect_call_to_forever_sleep(&self) {
+        block_on(async {
+            let mut locked_sleep_expected = self.sleep_expected.lock().await;
+            assert!(locked_sleep_expected.is_none());
+            *locked_sleep_expected = Some(SleepDuration::Forever);
+        });
+    }
+
     pub fn expect_call_to_sleep(&self) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
-            *locked_sleep_expected = true;
+            assert!(locked_sleep_expected.is_none());
+            *locked_sleep_expected =
+                Some(SleepDuration::Finite(RETRANSMISSION_TIMER));
         });
     }
 
@@ -56,8 +65,9 @@ impl MockTimer {
     pub fn trigger_and_expect_new_call(&self) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
-            *locked_sleep_expected = true;
+            assert!(locked_sleep_expected.is_none());
+            *locked_sleep_expected =
+                Some(SleepDuration::Finite(RETRANSMISSION_TIMER));
 
             self.let_sleep_return_tx.try_send(()).unwrap();
         });
@@ -68,7 +78,7 @@ impl MockTimer {
             // First check that the TC hasn't expected any sleep that hasn't
             // been executed yet
             let locked_sleep_expected = self.sleep_expected.lock().await;
-            assert!(!*locked_sleep_expected);
+            assert!(locked_sleep_expected.is_none());
 
             // Then check that no sleep has been made that the TC hasn't
             // waited for
@@ -85,21 +95,12 @@ impl MockTimer {
 #[async_trait]
 impl Timer for MockTimer {
     async fn sleep(&self, duration: SleepDuration) {
-        match duration {
-            SleepDuration::Finite(duration) => {
-                assert_eq!(RETRANSMISSION_TIMER, duration);
+        let mut locked_sleep_expected = self.sleep_expected.lock().await;
+        assert_eq!(*locked_sleep_expected, Some(duration));
+        *locked_sleep_expected = None;
+        drop(locked_sleep_expected);
 
-                let mut locked_sleep_expected = self.sleep_expected.lock().await;
-                assert!(*locked_sleep_expected);
-                *locked_sleep_expected = false;
-                drop(locked_sleep_expected);
-
-                self.sleep_called_tx.try_send(()).unwrap();
-                self.let_sleep_return_rx.recv().await.unwrap();
-            },
-            SleepDuration::Forever => {
-                async_std::task::sleep(Duration::from_secs(1000000000)).await;
-            }
-        }
+        self.sleep_called_tx.try_send(()).unwrap();
+        self.let_sleep_return_rx.recv().await.unwrap();
     }
 }

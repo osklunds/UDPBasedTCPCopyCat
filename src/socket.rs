@@ -31,7 +31,7 @@ trait Timer {
 #[derive(Debug, PartialEq)]
 enum SleepDuration {
     Finite(Duration),
-    Forever
+    Forever,
 }
 
 struct PlainTimer {}
@@ -42,7 +42,7 @@ impl Timer for PlainTimer {
         match duration {
             SleepDuration::Finite(duration) => {
                 async_std::task::sleep(duration).await;
-            },
+            }
             SleepDuration::Forever => {
                 async_std::task::sleep(Duration::from_secs(1000000000)).await;
             }
@@ -149,13 +149,10 @@ impl Stream {
         Self::connect_custom(timer, peer_addr, init_seq_num)
     }
 
-    fn connect_custom<
-        T: Timer + Send + Sync + 'static,
-        A: ToSocketAddrs,
-    >(
+    fn connect_custom<T: Timer + Send + Sync + 'static, A: ToSocketAddrs>(
         timer: Arc<T>,
         peer_addr: A,
-        init_seq_num: u32
+        init_seq_num: u32,
     ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
@@ -211,7 +208,10 @@ impl Stream {
         }
     }
 
-    async fn client_handshake(udp_socket: &UdpSocket, init_seq_num: u32) -> (u32, u32) {
+    async fn client_handshake(
+        udp_socket: &UdpSocket,
+        init_seq_num: u32,
+    ) -> (u32, u32) {
         // Send SYN
         let send_next = init_seq_num;
         let syn = Segment::new_empty(Syn, send_next, 0);
@@ -451,7 +451,7 @@ async fn connected_loop<T: Timer>(
                     if restart_timer {
                         future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
-                    } else {
+                    } else if timer_running {
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(&timer, true).fuse());
                         timer_running = false;
@@ -501,7 +501,9 @@ async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
         timer.sleep(SleepDuration::Forever).await;
         panic!("Forever sleep returned");
     } else {
-        timer.sleep(SleepDuration::Finite(RETRANSMISSION_TIMER)).await;
+        timer
+            .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
+            .await;
     }
 }
 
