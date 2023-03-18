@@ -64,7 +64,8 @@ impl MockTimer {
 
     pub fn trigger_and_expect_new_call(&self) {
         block_on(async {
-            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER)).await;
+            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER))
+                .await;
             self.let_sleep_return_tx.try_send(()).unwrap();
         });
     }
