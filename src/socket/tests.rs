@@ -87,7 +87,7 @@ fn mf_explicit_sequence_numbers() {
     let timer = Arc::new(MockTimer::new());
     let timer_cloned = Arc::clone(&timer);
     let tc_addr = tc_socket.local_addr().unwrap();
-    timer.expect_call_to_forever_sleep();
+    timer.expect_forever_sleep();
     let join_handle = thread::Builder::new()
         .name("connect client".to_string())
         .spawn(move || {
@@ -126,7 +126,7 @@ fn mf_explicit_sequence_numbers() {
     let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_seg_write1, seg_write1);
 
-    timer.expect_call_to_forever_sleep();
+    timer.expect_forever_sleep();
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&tc_socket, uut_addr, &ack_seg_write1);
     timer.wait_for_call_to_sleep();
@@ -143,7 +143,7 @@ fn mf_explicit_sequence_numbers() {
     let seg_write2 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_seg_write2, seg_write2);
 
-    timer.expect_call_to_forever_sleep();
+    timer.expect_forever_sleep();
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&tc_socket, uut_addr, &ack_seg_write2);
     timer.wait_for_call_to_sleep();
@@ -171,7 +171,7 @@ fn mf_explicit_sequence_numbers() {
     let fin_from_uut = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
-    timer.expect_call_to_forever_sleep();
+    timer.expect_forever_sleep();
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
     send_segment_to(&tc_socket, uut_addr, &ack_to_fin_from_uut);
     timer.wait_for_call_to_sleep();
