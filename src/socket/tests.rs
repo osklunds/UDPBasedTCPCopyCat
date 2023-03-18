@@ -885,7 +885,7 @@ fn af_tc_retransmits_fin() {
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
-    main_flow_uut_shutdown(&mut state);
+    main_flow_uut_shutdown_last(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -909,7 +909,7 @@ fn af_tc_retransmits_data_and_fin() {
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
-    main_flow_uut_shutdown(&mut state);
+    main_flow_uut_shutdown_last(&mut state);
     wait_shutdown_complete(state);
 }
 
