@@ -111,7 +111,7 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.set_read_timeout(Some(Duration::from_millis(2)));
 
     //////////////////////////////////////////////////////////////////
-    // Write
+    // Write #1
     //////////////////////////////////////////////////////////////////
 
     timer.expect_call_to_sleep();
@@ -128,13 +128,28 @@ fn mf_explicit_sequence_numbers() {
     send_segment_to(&tc_socket, uut_addr, &ack_seg_write1);
 
     //////////////////////////////////////////////////////////////////
+    // Write #2
+    //////////////////////////////////////////////////////////////////
+
+    timer.expect_call_to_sleep();
+    uut_stream.write(b"more").unwrap();
+    timer.wait_for_call_to_sleep();
+
+    let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
+    let seg_write2 = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_seg_write2, seg_write2);
+
+    let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
+    send_segment_to(&tc_socket, uut_addr, &ack_seg_write2);
+
+    //////////////////////////////////////////////////////////////////
     // Read
     //////////////////////////////////////////////////////////////////
 
-    let seg_read1 = Segment::new(Ack, 2001, 1006, b"From test case");
+    let seg_read1 = Segment::new(Ack, 2001, 1010, b"From test case");
     send_segment_to(&tc_socket, uut_addr, &seg_read1);
 
-    let exp_ack_read1 = Segment::new_empty(Ack, 1006, 2015);
+    let exp_ack_read1 = Segment::new_empty(Ack, 1010, 2015);
     let ack_read1 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_ack_read1, ack_read1);
 
@@ -146,21 +161,21 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.shutdown();
     timer.wait_for_call_to_sleep();
 
-    let exp_fin = Segment::new_empty(Fin, 1006, 2015);
+    let exp_fin = Segment::new_empty(Fin, 1010, 2015);
     let fin_from_uut = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
-    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1007);
+    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
     send_segment_to(&tc_socket, uut_addr, &ack_to_fin_from_uut);
 
     //////////////////////////////////////////////////////////////////
     // Shutdown from tc
     //////////////////////////////////////////////////////////////////
 
-    let fin_from_tc = Segment::new_empty(Fin, 2015, 1007);
+    let fin_from_tc = Segment::new_empty(Fin, 2015, 1011);
     send_segment_to(&tc_socket, uut_addr, &fin_from_tc);
 
-    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1007, 2016);
+    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1011, 2016);
     let ack_to_fin_from_tc = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
 
