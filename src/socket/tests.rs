@@ -80,7 +80,9 @@ fn mf_explicit_sequence_numbers() {
         .set_read_timeout(Some(Duration::from_millis(2)))
         .unwrap();
 
+    //////////////////////////////////////////////////////////////////
     // Connect
+    //////////////////////////////////////////////////////////////////
     let timer = Arc::new(MockTimer::new());
     let timer_cloned = Arc::clone(&timer);
     let tc_addr = tc_socket.local_addr().unwrap();
@@ -107,6 +109,26 @@ fn mf_explicit_sequence_numbers() {
 
     let mut uut_stream = join_handle.join().unwrap();
     uut_stream.set_read_timeout(Some(Duration::from_millis(2)));
+
+    //////////////////////////////////////////////////////////////////
+    // Write
+    //////////////////////////////////////////////////////////////////
+
+    timer.expect_call_to_sleep();
+    uut_stream.write(b"hello").unwrap();
+    timer.wait_for_call_to_sleep();
+
+    let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
+    let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_seg_write1, seg_write1);
+
+    let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
+    send_segment_to(&tc_socket, uut_addr, &ack_seg_write1);
+
+    //////////////////////////////////////////////////////////////////
+    // Read
+    //////////////////////////////////////////////////////////////////
+
 }
 
 #[test]
