@@ -132,10 +132,10 @@ impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
         // TODO: See if Arc can be removed in non-test code
         let timer = Arc::new(PlainTimer {});
-        Self::connect_custom_timer(timer, peer_addr)
+        Self::connect_custom(timer, peer_addr)
     }
 
-    fn connect_custom_timer<
+    fn connect_custom<
         T: Timer + Send + Sync + 'static,
         A: ToSocketAddrs,
     >(
