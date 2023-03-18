@@ -349,9 +349,11 @@ fn af_uut_retransmits_data_due_to_timeout() {
 
     expect_segment(&state, &recv_seg);
 
+    state.timer.expect_forever_sleep();
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
     send_segment(&state, &ack);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -409,7 +411,9 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
     send_segment(&state, &ack2);
     state.timer.wait_for_call_to_sleep();
 
+    state.timer.expect_forever_sleep();
     send_segment(&state, &ack3);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -454,12 +458,14 @@ fn af_client_retransmits_data_due_to_old_ack() {
     send_segment(&state, &send_ack1);
     state.timer.wait_for_call_to_sleep();
 
+    state.timer.expect_forever_sleep();
     let send_ack2 = Segment::new_empty(
         Ack,
         state.tc_seq_num,
         initial_uut_seq_num + len1 + len2,
     );
     send_segment(&state, &send_ack2);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -489,9 +495,11 @@ fn af_uut_retransmits_fin() {
 
     expect_segment(&state, &exp_fin);
 
+    state.timer.expect_forever_sleep();
     let ack =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + 1);
     send_segment(&state, &ack);
+    state.timer.wait_for_call_to_sleep();
     state.uut_seq_num += 1;
 
     main_flow_uut_read(&mut state, b"some data to read");
@@ -527,12 +535,14 @@ fn af_first_segment_acked_but_not_second() {
     expect_segment(&state, &recv_seg2);
     state.timer.wait_for_call_to_sleep();
 
+    state.timer.expect_forever_sleep();
     let ack2 = Segment::new_empty(
         Ack,
         state.tc_seq_num,
         initial_uut_seq_num + len1 + len2,
     );
     send_segment(&state, &ack2);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -556,7 +566,9 @@ fn af_cumulative_ack() {
         initial_uut_seq_num + len1 + len2,
     );
 
+    state.timer.expect_forever_sleep();
     send_segment(&state, &ack);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -596,9 +608,10 @@ fn af_multi_segment_write() {
 
     state.uut_seq_num += len;
 
+    state.timer.expect_forever_sleep();
     let ack = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
-
     send_segment(&state, &ack);
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
@@ -622,7 +635,9 @@ fn af_same_segment_carries_data_and_acks() {
     state.timer.wait_for_call_to_sleep();
 
     // Then send some data from tc, without first sending a separate ACK
+    state.timer.expect_forever_sleep();
     main_flow_uut_read(&mut state, b"some other data");
+    state.timer.wait_for_call_to_sleep();
 
     shutdown(state);
 }
