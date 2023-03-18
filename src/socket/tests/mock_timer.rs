@@ -40,7 +40,7 @@ impl MockTimer {
         });
     }
 
-    pub fn expect_call_to_sleep(&self) {
+    pub fn expect_sleep(&self) {
         block_on(async {
             let mut locked_sleep_expected = self.sleep_expected.lock().await;
             assert!(locked_sleep_expected.is_none());

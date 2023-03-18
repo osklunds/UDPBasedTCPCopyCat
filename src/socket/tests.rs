@@ -117,7 +117,7 @@ fn mf_explicit_sequence_numbers() {
     // Write #1
     //////////////////////////////////////////////////////////////////
 
-    timer.expect_call_to_sleep();
+    timer.expect_sleep();
     uut_stream.write(b"hello").unwrap();
     timer.wait_for_call_to_sleep();
     // TODO: Simultaneous FIN
@@ -135,7 +135,7 @@ fn mf_explicit_sequence_numbers() {
     // Write #2
     //////////////////////////////////////////////////////////////////
 
-    timer.expect_call_to_sleep();
+    timer.expect_sleep();
     uut_stream.write(b"more").unwrap();
     timer.wait_for_call_to_sleep();
 
@@ -163,7 +163,7 @@ fn mf_explicit_sequence_numbers() {
     // Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
-    timer.expect_call_to_sleep();
+    timer.expect_sleep();
     uut_stream.shutdown();
     timer.wait_for_call_to_sleep();
 
@@ -337,7 +337,7 @@ fn af_uut_retransmits_data_due_to_timeout() {
     let initial_uut_seq_num = state.uut_seq_num;
 
     // Send data from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data = b"some data";
     let (len, recv_seg) = uut_write(&mut state, data);
     state.timer.wait_for_call_to_sleep();
@@ -367,7 +367,7 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
     let initial_uut_seq_num = state.uut_seq_num;
 
     // Send data from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data1 = b"some data";
     let (len1, recv_seg1) = uut_write(&mut state, data1);
     state.timer.wait_for_call_to_sleep();
@@ -401,11 +401,11 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
         initial_uut_seq_num + len1 + len2 + len3,
     );
 
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     send_segment(&state, &ack1);
     state.timer.wait_for_call_to_sleep();
 
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     send_segment(&state, &ack2);
     state.timer.wait_for_call_to_sleep();
 
@@ -425,7 +425,7 @@ fn af_client_retransmits_data_due_to_old_ack() {
     let initial_uut_seq_num = state.uut_seq_num;
 
     // Send data1 from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data1 = b"first data";
     let (len1, recv_seg1) = uut_write(&mut state, data1);
     state.timer.wait_for_call_to_sleep();
@@ -436,7 +436,7 @@ fn af_client_retransmits_data_due_to_old_ack() {
 
     // tc pretends that it didn't get data1 by sending ACK (dup ack, fast
     // retransmit) for the original seq_num
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let send_ack0 =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num);
     send_segment(&state, &send_ack0);
@@ -448,7 +448,7 @@ fn af_client_retransmits_data_due_to_old_ack() {
     expect_segment(&state, &recv_seg2);
 
     // Now the tc sends ack for both of them
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let send_ack1 =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len1);
     send_segment(&state, &send_ack1);
@@ -475,7 +475,7 @@ fn af_uut_retransmits_fin() {
     let initial_uut_seq_num = state.uut_seq_num;
 
     // Send FIN from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     uut_stream(&mut state).shutdown();
     state.timer.wait_for_call_to_sleep();
 
@@ -505,7 +505,7 @@ fn af_first_segment_acked_but_not_second() {
     let mut state = setup_connected_uut_client();
     let initial_uut_seq_num = state.uut_seq_num;
 
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data1 = b"some data";
     let (len1, _recv_seg1) = uut_write(&mut state, data1);
     state.timer.wait_for_call_to_sleep();
@@ -518,7 +518,7 @@ fn af_first_segment_acked_but_not_second() {
 
     // TC sends Ack for the first segment, but not the second
     // This causes the timer to be restarted
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     send_segment(&state, &ack1);
     state.timer.wait_for_call_to_sleep();
     state.timer.trigger_and_expect_new_call();
@@ -542,7 +542,7 @@ fn af_cumulative_ack() {
     let mut state = setup_connected_uut_client();
     let initial_uut_seq_num = state.uut_seq_num;
 
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data1 = b"some data";
     let (len1, _seg1) = uut_write(&mut state, data1);
     state.timer.wait_for_call_to_sleep();
@@ -571,7 +571,7 @@ fn af_multi_segment_write() {
     let data = random_data_of_length(len);
 
     // Send from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let written_len = uut_stream(&mut state).write(&data).unwrap() as u32;
     assert_eq!(len, written_len);
     state.timer.wait_for_call_to_sleep();
@@ -616,7 +616,7 @@ fn af_same_segment_carries_data_and_acks() {
     let mut state = setup_connected_uut_client();
 
     // Send some data from uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let data_from_uut = b"some data";
     uut_write(&mut state, data_from_uut);
     state.timer.wait_for_call_to_sleep();
@@ -1024,7 +1024,7 @@ fn main_flow_uut_shutdown(state: &mut State) {
     // will be made
     thread::sleep(Duration::from_millis(1));
 
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     uut_stream(state).shutdown();
     state.timer.wait_for_call_to_sleep();
 
@@ -1142,7 +1142,7 @@ fn expect_read_no_data(state: &mut State) {
 
 fn main_flow_uut_write(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Send from the uut
-    state.timer.expect_call_to_sleep();
+    state.timer.expect_sleep();
     let (_len, recv_data_seg) = uut_write(state, data);
     state.timer.wait_for_call_to_sleep();
 
