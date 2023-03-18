@@ -117,6 +117,7 @@ fn mf_explicit_sequence_numbers() {
     timer.expect_call_to_sleep();
     uut_stream.write(b"hello").unwrap();
     timer.wait_for_call_to_sleep();
+    // Idea: expect timer cancel
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
@@ -129,6 +130,12 @@ fn mf_explicit_sequence_numbers() {
     // Read
     //////////////////////////////////////////////////////////////////
 
+    let seg_read1 = Segment::new(Ack, 2001, 1006, b"From test case");
+    send_segment_to(&tc_socket, uut_addr, &seg_read1);
+
+    let exp_ack_read1 = Segment::new_empty(Ack, 1006, 2015);
+    let ack_read1 = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_ack_read1, ack_read1);
 }
 
 #[test]
