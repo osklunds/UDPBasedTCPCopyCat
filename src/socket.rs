@@ -132,7 +132,8 @@ impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
         // TODO: See if Arc can be removed in non-test code
         let timer = Arc::new(PlainTimer {});
-        Self::connect_custom(timer, peer_addr)
+        let init_seq_num = rand::random();
+        Self::connect_custom(timer, peer_addr, init_seq_num)
     }
 
     fn connect_custom<
@@ -141,6 +142,7 @@ impl Stream {
     >(
         timer: Arc<T>,
         peer_addr: A,
+        init_seq_num: u32
     ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
@@ -151,7 +153,7 @@ impl Stream {
             Ok(udp_socket) => {
                 let (send_next, receive_next) = block_on(async {
                     UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
-                    Self::client_handshake(&udp_socket).await
+                    Self::client_handshake(&udp_socket, init_seq_num).await
                 });
 
                 let state = ConnectedState {
@@ -196,9 +198,9 @@ impl Stream {
         }
     }
 
-    async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
+    async fn client_handshake(udp_socket: &UdpSocket, init_seq_num: u32) -> (u32, u32) {
         // Send SYN
-        let send_next = rand::random();
+        let send_next = init_seq_num;
         let syn = Segment::new_empty(Syn, send_next, 0);
         let encoded_syn = Segment::encode(&syn);
 

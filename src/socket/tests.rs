@@ -841,7 +841,8 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
     let join_handle = thread::Builder::new()
         .name("connect client".to_string())
         .spawn(move || {
-            Stream::connect_custom(timer_cloned, tc_addr).unwrap()
+            let init_seq_num = rand::random();
+            Stream::connect_custom(timer_cloned, tc_addr, init_seq_num).unwrap()
         })
         .unwrap();
 
