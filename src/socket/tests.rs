@@ -555,6 +555,7 @@ fn af_uut_retransmits_data_and_fin() {
     // TODO: Make uut_shutdown helper
     let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&state, &exp_fin);
+    state.uut_seq_num += 1;
 
     // tc pretends it didn't get the data or FIN, so the timer expires
     state.timer.trigger_and_expect_new_call();
@@ -580,12 +581,8 @@ fn af_uut_retransmits_data_and_fin() {
     send_segment(&state, &fin_ack);
     state.timer.wait_for_call_to_sleep();
 
-    thread::sleep(Duration::from_millis(10));
-    state.uut_seq_num += len + 1;
-
-    // main_flow_tc_shutdown(&mut state);
-    // wait_shutdown_complete(state);
-
+    main_flow_tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
 }
 
 #[test]
