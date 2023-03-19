@@ -508,12 +508,8 @@ fn af_uut_retransmits_fin() {
 
     // Send FIN from uut
     state.timer.expect_sleep();
-    uut_stream(&mut state).shutdown();
+    let exp_fin = uut_shutdown(&mut state);
     state.timer.wait_for_call_to_sleep();
-
-    let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&state, &exp_fin);
-    state.uut_seq_num += 1;
 
     // tc pretends it didn't get the FIN by not sending an ACK. Instead,
     // the timeout expires
