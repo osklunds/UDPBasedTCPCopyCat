@@ -399,6 +399,7 @@ fn mf_simultaneous_read_and_write() {
 
     // uut sends some data
     let data_from_uut = b"data";
+    let data_from_uut_len = data_from_uut.len() as u32;
     state.timer.expect_sleep();
     uut_stream(&mut state).write(data_from_uut).unwrap();
     state.timer.wait_for_call();
@@ -410,6 +411,7 @@ fn mf_simultaneous_read_and_write() {
     // tc sends some data "at the same time", i.e. it sends data before it
     // knows of the data the uut sent. So it doesn't ack that data.
     let data_from_tc = b"data from tc";
+    let data_from_tc_len = data_from_tc.len() as u32;
     let seg_from_tc =
         Segment::new(Ack, state.receive_next, state.send_next, data_from_tc);
     state.timer.expect_sleep();
@@ -425,8 +427,8 @@ fn mf_simultaneous_read_and_write() {
     // Then the uut acks the data from the tc
     let exp_ack = Segment::new_empty(
         Ack,
-        state.send_next + data_from_uut.len() as u32,
-        state.receive_next + data_from_tc.len() as u32,
+        state.send_next + data_from_uut_len,
+        state.receive_next + data_from_tc_len,
     );
     expect_segment(&mut state, &exp_ack);
 
@@ -434,14 +436,14 @@ fn mf_simultaneous_read_and_write() {
     state.timer.expect_forever_sleep();
     let ack_to_data_from_uut = Segment::new_empty(
         Ack,
-        state.receive_next + data_from_tc.len() as u32,
-        state.send_next + data_from_uut.len() as u32,
+        state.receive_next + data_from_tc_len,
+        state.send_next + data_from_uut_len,
     );
     send_segment(&mut state, &ack_to_data_from_uut);
     state.timer.wait_for_call();
 
-    state.send_next += data_from_uut.len() as u32;
-    state.receive_next += data_from_tc.len() as u32;
+    state.send_next += data_from_uut_len;
+    state.receive_next += data_from_tc_len;
     shutdown(state);
 }
 
