@@ -591,16 +591,10 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
         // TODO: Need to investigate if tc should send ack_num+1
-        println!(
-            "BUFFER {:?} ack_num {:?}, len {:?}",
-            buffer,
-            ack_num,
-            first_unacked_segment.data().len()
-        );
         // TODO: Check > vs >= with tests. It was caught thanks to FIN being 1
         // But a test with one-length data is needed to catch other off-by-one
         if ack_num
-            > first_unacked_segment.seq_num()
+            >= first_unacked_segment.seq_num()
                 + first_unacked_segment.data().len() as u32
         {
             buffer.remove(0);
