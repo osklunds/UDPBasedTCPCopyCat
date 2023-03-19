@@ -390,6 +390,61 @@ fn mf_client_reads_and_writes() {
     shutdown(state);
 }
 
+#[test]
+fn mf_simultaneous_read_and_write() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    // uut sends some data
+    let data_from_uut = b"data";
+    state.timer.expect_sleep();
+    uut_stream(&mut state).write(data_from_uut).unwrap();
+    state.timer.wait_for_call();
+
+    let exp_data_seg =
+        Segment::new(Ack, state.send_next, state.receive_next, data_from_uut);
+    expect_segment(&state, &exp_data_seg);
+
+    // tc sends some data "at the same time", i.e. it sends data before it
+    // knows of the data the uut sent. So it doesn't ack that data.
+    let data_from_tc = b"data from tc";
+    let seg_from_tc =
+        Segment::new(Ack, state.receive_next, state.send_next, data_from_tc);
+    state.timer.expect_sleep();
+    send_segment(&state, &seg_from_tc);
+    state.timer.wait_for_call();
+
+    expect_read(&mut state, &[data_from_tc]);
+
+    // First the uut retransmits its data, because the ack num concerns old data.
+    // I.e. due to "fast retransmit", it's sent again.
+    expect_segment(&state, &exp_data_seg);
+
+    // Then the uut acks the data from the tc
+    let exp_ack = Segment::new_empty(
+        Ack,
+        state.send_next + data_from_uut.len() as u32,
+        state.receive_next + data_from_tc.len() as u32,
+    );
+    expect_segment(&mut state, &exp_ack);
+
+    // Ack the data from uut
+    state.timer.expect_forever_sleep();
+    let ack_to_data_from_uut = Segment::new_empty(
+        Ack,
+        state.receive_next + data_from_tc.len() as u32,
+        state.send_next + data_from_uut.len() as u32,
+    );
+    send_segment(&mut state, &ack_to_data_from_uut);
+    state.timer.wait_for_call();
+
+    state.send_next += data_from_uut.len() as u32;
+    state.receive_next += data_from_tc.len() as u32;
+    shutdown(state);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Alternative flow test cases
 ////////////////////////////////////////////////////////////////////////////////
