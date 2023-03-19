@@ -625,10 +625,7 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
         // the segment contains byte number 3 and 4, and the next byte to send
         // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
         // expect from you is number 5".
-        if ack_num
-            >= first_unacked_segment.seq_num()
-                + virtual_len as u32
-        {
+        if ack_num >= first_unacked_segment.seq_num() + virtual_len as u32 {
             buffer.remove(0);
         } else {
             break;

@@ -1125,7 +1125,8 @@ fn main_flow_uut_shutdown_helper(
 
     // tc sends ACK to the FIN
     expect_sleep(state);
-    let ack_to_fin = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
+    let ack_to_fin =
+        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
     send_segment(&state, &ack_to_fin);
     wait_sleep(state);
 }

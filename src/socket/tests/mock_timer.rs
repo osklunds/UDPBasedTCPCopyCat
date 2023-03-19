@@ -9,7 +9,8 @@ use std::time::Duration;
 use crate::socket::{SleepDuration, Timer, RETRANSMISSION_TIMER};
 
 pub struct MockTimer {
-    sleep_expected: Mutex<Option<SleepDuration>>,
+    expect_sleep_tx: Sender<SleepDuration>,
+    expect_sleep_rx: Receiver<SleepDuration>,
     sleep_called_tx: Sender<()>,
     sleep_called_rx: Receiver<()>,
     let_sleep_return_tx: Sender<()>,
@@ -18,13 +19,14 @@ pub struct MockTimer {
 
 impl MockTimer {
     pub fn new() -> Self {
-        let sleep_expected = Mutex::new(None);
+        let (expect_sleep_tx, expect_sleep_rx) = async_channel::bounded(1);
         let (sleep_called_tx, sleep_called_rx) = async_channel::bounded(1);
         let (let_sleep_return_tx, let_sleep_return_rx) =
             async_channel::bounded(1);
 
         MockTimer {
-            sleep_expected,
+            expect_sleep_tx,
+            expect_sleep_rx,
             sleep_called_tx,
             sleep_called_rx,
             let_sleep_return_tx,
@@ -41,12 +43,9 @@ impl MockTimer {
     }
 
     async fn expect_call(&self, duration: SleepDuration) {
-        let mut locked_sleep_expected = self.sleep_expected.lock().await;
-        assert!(
-            locked_sleep_expected.is_none(),
-            "Expect sleep called, but sleep already expected"
-        );
-        *locked_sleep_expected = Some(duration);
+        self.expect_sleep_tx
+            .try_send(duration)
+            .expect("Expect sleep called, but sleep already expected");
     }
 
     pub fn wait_for_call_to_sleep(&self) {
@@ -74,9 +73,8 @@ impl MockTimer {
         block_on(async {
             // First check that the TC hasn't expected any sleep that hasn't
             // been executed yet
-            let locked_sleep_expected = self.sleep_expected.lock().await;
             assert!(
-                locked_sleep_expected.is_none(),
+                self.expect_sleep_tx.is_empty(),
                 "In test end check, a call to sleep is expected to happen"
             );
 
@@ -98,15 +96,11 @@ impl MockTimer {
 #[async_trait]
 impl Timer for MockTimer {
     async fn sleep(&self, duration: SleepDuration) {
-        let mut locked_sleep_expected = self.sleep_expected.lock().await;
-        assert_eq!(
-            *locked_sleep_expected,
-            Some(duration),
-            "Unexpected call to sleep or unexpected argument"
-        );
-        *locked_sleep_expected = None;
-        drop(locked_sleep_expected);
-
+        let exp_duration = self
+            .expect_sleep_rx
+            .try_recv()
+            .expect("Sleep called but not expectation set up");
+        assert_eq!(exp_duration, duration);
         self.sleep_called_tx.try_send(()).unwrap();
         self.let_sleep_return_rx.recv().await.unwrap();
     }
