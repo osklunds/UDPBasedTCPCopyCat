@@ -35,14 +35,14 @@ impl MockTimer {
     }
 
     pub fn expect_forever_sleep(&self) {
-        block_on(self.expect_call(SleepDuration::Forever));
+        self.expect_call(SleepDuration::Forever);
     }
 
     pub fn expect_sleep(&self) {
-        block_on(self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER)));
+        self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
     }
 
-    async fn expect_call(&self, duration: SleepDuration) {
+    fn expect_call(&self, duration: SleepDuration) {
         self.expect_sleep_tx
             .try_send(duration)
             .expect("Expect sleep called, but sleep already expected");
@@ -63,8 +63,7 @@ impl MockTimer {
 
     pub fn trigger_and_expect_new_call(&self) {
         block_on(async {
-            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER))
-                .await;
+            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
             self.let_sleep_return_tx.try_send(()).unwrap();
         });
     }
