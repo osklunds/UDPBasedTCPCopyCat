@@ -65,8 +65,6 @@ use crate::segment::Segment;
 // - ef: Cumulative ack, one byte more and one byte less
 //   than the border
 // - ef: close causes segment to be lost
-// - af: Simultaneous data. It can lead to infinite loop due to too old ack_num
-//       being sent due to stale ack_num in segments in send_buffer
 // - mf: single byte read and written
 // - af: FIN is sent, but the segment before was lost. I.e. out of order with
 //       FIN
