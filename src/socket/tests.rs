@@ -65,6 +65,7 @@ use crate::segment::Segment;
 // - ef: Cumulative ack, one byte more and one byte less
 //   than the border
 // - ef: close causes segment to be lost
+// - af: Simultaneous FIN
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
@@ -120,7 +121,6 @@ fn mf_explicit_sequence_numbers() {
     timer.expect_sleep();
     uut_stream.write(b"hello").unwrap();
     timer.wait_for_call_to_sleep();
-    // TODO: Simultaneous FIN
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
