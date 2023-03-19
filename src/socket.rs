@@ -602,7 +602,7 @@ async fn handle_retransmissions_at_ack_recv(
     let need_retransmit = segments_remain && !made_progress;
     if need_retransmit {
         for seg in buffer {
-            seg.set_ack_num(receive_next);
+            *seg = seg.set_ack_num(receive_next);
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
     }

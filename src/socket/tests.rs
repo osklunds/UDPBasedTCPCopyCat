@@ -294,10 +294,9 @@ fn mf_simultaneous_shutdown() {
     send_segment(&state, &fin_from_tc);
     state.timer.wait_for_call();
 
-    // The FIN is retransmitted, ut ack_num has been increased to ack
+    // The FIN is retransmitted, but ack_num has been increased to ack
     // the FIN from the tc.
-    let mut new_exp_fin = exp_fin.clone();
-    new_exp_fin.set_ack_num(state.receive_next + 1);
+    let new_exp_fin = exp_fin.set_ack_num(state.receive_next + 1);
     expect_segment(&mut state, &new_exp_fin);
 
     // The tc acks the FIN
@@ -423,8 +422,7 @@ fn mf_simultaneous_read_and_write() {
 
     // The uut retransmits its own data sent, but ack_num has been increased
     // to ack what it got from the tc.
-    let mut new_exp_data_seg = exp_data_seg.clone();
-    new_exp_data_seg.set_ack_num(state.receive_next + data_from_tc_len);
+    let new_exp_data_seg = exp_data_seg.set_ack_num(state.receive_next + data_from_tc_len);
     expect_segment(&state, &new_exp_data_seg);
 
     // Ack the data from uut
