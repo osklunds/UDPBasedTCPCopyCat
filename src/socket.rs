@@ -304,8 +304,8 @@ impl Stream {
     }
 
     // TODO: If no FIN received, a timeout should be used to see that
-    // not getting stuck. Can probably re-use the normal retransmission timer
-    // for this
+    // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
+    // on recv channel. If timeout, return. If error closed, return.
     pub fn wait_shutdown_complete(self) {
         if let InnerStream::Client(client_stream) = self.inner_stream {
             client_stream.join_handle.join().unwrap();
