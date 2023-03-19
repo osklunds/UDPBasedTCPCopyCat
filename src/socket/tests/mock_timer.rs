@@ -61,11 +61,8 @@ impl MockTimer {
         });
     }
 
-    pub fn trigger_and_expect_new_call(&self) {
-        block_on(async {
-            self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
-            self.let_sleep_return_tx.try_send(()).unwrap();
-        });
+    pub fn trigger(&self) {
+        self.let_sleep_return_tx.try_send(()).unwrap();
     }
 
     pub fn test_end_check(&self) {
@@ -87,8 +84,14 @@ impl MockTimer {
             // Finally let the sleep return so that a retransmission of
             // everything in the buffer is done, so that non empty
             // buffer is detected.
-            self.let_sleep_return_tx.try_send(()).unwrap();
+            self.trigger();
         });
+    }
+
+    pub fn re_expect_trigger_wait(&self) {
+        self.expect_sleep();
+        self.trigger();
+        self.wait_for_call();
     }
 }
 

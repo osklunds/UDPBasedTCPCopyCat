@@ -372,9 +372,7 @@ fn af_uut_retransmits_data_due_to_timeout() {
 
     // tc pretends it didn't get data by not sending an ACK. Instead,
     // the timeout expires
-    state.timer.trigger_and_expect_new_call();
-    state.timer.wait_for_call();
-
+    state.timer.re_expect_trigger_wait();
     expect_segment(&state, &recv_seg);
 
     state.timer.expect_forever_sleep();
@@ -411,8 +409,7 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
 
     // tc pretends it didn't get data by not sending an ACK. Instead,
     // the timeout expires
-    state.timer.trigger_and_expect_new_call();
-    state.timer.wait_for_call();
+    state.timer.re_expect_trigger_wait();
 
     expect_segment(&state, &recv_seg1);
     expect_segment(&state, &recv_seg2);
@@ -513,8 +510,7 @@ fn af_uut_retransmits_fin() {
 
     // tc pretends it didn't get the FIN by not sending an ACK. Instead,
     // the timeout expires
-    state.timer.trigger_and_expect_new_call();
-    state.timer.wait_for_call();
+    state.timer.re_expect_trigger_wait();
 
     expect_segment(&state, &exp_fin);
 
@@ -546,8 +542,7 @@ fn af_uut_retransmits_data_and_fin() {
     let exp_fin = uut_shutdown(&mut state);
 
     // tc pretends it didn't get the data or FIN, so the timer expires
-    state.timer.trigger_and_expect_new_call();
-    state.timer.wait_for_call();
+    state.timer.re_expect_trigger_wait();
 
     expect_segment(&state, &recv_data_seg);
     expect_segment(&state, &exp_fin);
@@ -594,11 +589,10 @@ fn af_first_segment_acked_but_not_second() {
     state.timer.expect_sleep();
     send_segment(&state, &ack1);
     state.timer.wait_for_call();
-    state.timer.trigger_and_expect_new_call();
+    state.timer.re_expect_trigger_wait();
 
     // Only the unacked segment is retransmitted
     expect_segment(&state, &recv_seg2);
-    state.timer.wait_for_call();
 
     state.timer.expect_forever_sleep();
     let ack2 = Segment::new_empty(
