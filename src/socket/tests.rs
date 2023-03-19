@@ -569,9 +569,11 @@ fn af_client_retransmits_data_due_to_old_ack() {
     expect_segment(&state, &recv_seg2);
 
     // Now the tc sends ack for both of them
+    state.timer.expect_sleep();
     let send_ack1 =
         Segment::new_empty(Ack, state.receive_next, initial_send_next + len1);
     send_segment(&state, &send_ack1);
+    state.timer.wait_for_call();
 
     state.timer.expect_forever_sleep();
     let send_ack2 = Segment::new_empty(
