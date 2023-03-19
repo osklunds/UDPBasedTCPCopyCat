@@ -610,6 +610,12 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
         let first_unacked_segment = &buffer[0];
         // Why >= and not >?
 
+        let virtual_len = match first_unacked_segment.kind() {
+            Ack => first_unacked_segment.data().len(),
+            Fin => 1,
+            _ => panic!("Should not have other kinds in this buffer"),
+        };
+
         // RFC 793 explicitely says "A segment on the retransmission queue is
         // fully acknowledged if the sum of its sequence number and length is
         // less or equal than the acknowledgment value in the incoming segment."
@@ -621,7 +627,7 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
         // expect from you is number 5".
         if ack_num
             >= first_unacked_segment.seq_num()
-                + first_unacked_segment.data().len() as u32
+                + virtual_len as u32
         {
             buffer.remove(0);
         } else {

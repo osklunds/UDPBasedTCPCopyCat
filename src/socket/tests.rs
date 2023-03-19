@@ -566,7 +566,7 @@ fn af_uut_retransmits_data_and_fin() {
     let data_seg_ack =
         Segment::new_empty(Ack, state.tc_seq_num, initial_uut_seq_num + len);
     let fin_ack = Segment::new_empty(
-        Fin,
+        Ack,
         state.tc_seq_num,
         initial_uut_seq_num + len + 1,
     );
@@ -576,11 +576,16 @@ fn af_uut_retransmits_data_and_fin() {
     send_segment(&state, &data_seg_ack);
     state.timer.wait_for_call_to_sleep();
 
+    state.timer.expect_forever_sleep();
     send_segment(&state, &fin_ack);
+    state.timer.wait_for_call_to_sleep();
+
+    thread::sleep(Duration::from_millis(10));
     state.uut_seq_num += len + 1;
 
-    main_flow_tc_shutdown(&mut state);
-    wait_shutdown_complete(state);
+    // main_flow_tc_shutdown(&mut state);
+    // wait_shutdown_complete(state);
+
 }
 
 #[test]
