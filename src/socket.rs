@@ -485,6 +485,7 @@ async fn connected_loop<T: Timer>(
 
                 for segment in &mut locked_connected_state.send_buffer {
                     *segment = segment.set_ack_num(receive_next);
+                    // TODO: Add a test for the line above
                     // println!("Sendingg {:?}", segment);
                     send_segment(
                         &udp_socket,
