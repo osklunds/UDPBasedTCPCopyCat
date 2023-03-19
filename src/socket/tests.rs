@@ -683,7 +683,6 @@ fn af_first_segment_acked_but_not_second() {
     // But when the timer expires...
     state.timer.re_expect_trigger_wait();
 
-    println!("Re triggered");
     // ...only the unacked segment is retransmitted
     expect_segment(&state, &recv_seg2);
 
