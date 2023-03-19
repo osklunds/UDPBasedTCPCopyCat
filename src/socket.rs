@@ -539,15 +539,6 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         assert!(locked_connected_state.receive_next >= seq_num);
     }
 
-    // Sender side logic
-    let restart_timer = handle_retransmissions_at_ack_recv(
-        ack_num,
-        &mut locked_connected_state,
-        &state,
-    )
-    .await;
-
-    // Receiver side logic
     assert!(kind == Fin || kind == Ack);
     if kind == Ack && len == 0 {
         // Do nothing for a pure ACK
@@ -561,7 +552,15 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     let should_continue =
         process_recv_buffer(&state, &mut locked_connected_state).await;
 
-    if len > 0 || kind == Fin {
+    let (segments_remain, retransmitted) = handle_retransmissions_at_ack_recv(
+        ack_num,
+        &mut locked_connected_state,
+        &state,
+    )
+    .await;
+
+    let ack_needed = len > 0 || kind == Fin;
+    if ack_needed && !retransmitted {
         send_ack(&state, &mut locked_connected_state, peer_addr).await;
     }
 
@@ -572,6 +571,11 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         RecvSocketResult::Exit
     } else if should_continue {
         drop(locked_connected_state);
+        // If segments remain, restart the timer, because if something was
+        // acked, we made progresss, and if something wasn't acked, we
+        // retransmitted
+        assert!(segments_remain || !retransmitted);
+        let restart_timer = retransmitted;
         RecvSocketResult::Continue(state, restart_timer)
     } else {
         RecvSocketResult::Exit
@@ -582,7 +586,8 @@ async fn handle_retransmissions_at_ack_recv(
     ack_num: u32,
     locked_connected_state: &mut LockedConnectedState<'_>,
     state: &RecvSocketState<'_>,
-) -> bool {
+) -> (bool, bool) {
+    let receive_next = locked_connected_state.receive_next;
     let buffer = &mut locked_connected_state.send_buffer;
     let buffer_len_before = buffer.len();
     removed_acked_segments(ack_num, buffer);
@@ -597,12 +602,11 @@ async fn handle_retransmissions_at_ack_recv(
     let need_retransmit = segments_remain && !made_progress;
     if need_retransmit {
         for seg in buffer {
+            seg.set_ack_num(receive_next);
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
     }
-    // If segments remain, restart the timer, because if something was acked,
-    // we made progresss, and if something wasn't acked, we retransmit
-    segments_remain
+    (segments_remain, need_retransmit)
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {

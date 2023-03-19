@@ -60,6 +60,10 @@ impl Segment {
         self.ack_num
     }
 
+    pub fn set_ack_num(&mut self, ack_num: u32) {
+        self.ack_num = ack_num;
+    }
+
     pub fn data(&self) -> &[u8] {
         &self.data
     }

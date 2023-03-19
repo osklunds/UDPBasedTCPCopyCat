@@ -294,15 +294,13 @@ fn mf_simultaneous_shutdown() {
     send_segment(&state, &fin_from_tc);
     state.timer.wait_for_call();
 
-    // The same FIN is retransmitted, because the ack num concerns old data.
-    // I.e. due to "fast retransmit", it's sent again.
-    expect_segment(&mut state, &exp_fin);
+    // The FIN is retransmitted, ut ack_num has been increased to ack
+    // the FIN from the tc.
+    let mut new_exp_fin = exp_fin.clone();
+    new_exp_fin.set_ack_num(state.receive_next + 1);
+    expect_segment(&mut state, &new_exp_fin);
 
-    // And after that, an ACK to the tc's FIN is sent
-    let exp_ack_to_fin =
-        Segment::new_empty(Ack, state.send_next + 1, state.receive_next + 1);
-    expect_segment(&mut state, &exp_ack_to_fin);
-
+    // The tc acks the FIN
     let ack_to_fin =
         Segment::new_empty(Ack, state.receive_next + 1, state.send_next + 1);
     send_segment(&mut state, &ack_to_fin);
@@ -423,19 +421,11 @@ fn mf_simultaneous_read_and_write() {
 
     expect_read(&mut state, &[data_from_tc]);
 
-    // First uut retransmits its own segment it first sent
-    expect_segment(&state, &exp_data_seg);
-
-    // TODO: The above should use the new ack_num and the below be skipped.
-    // It's important that the new ack_num is sent to prevent endless looping.
-
-    // Then the uut acks the data from the tc
-    let exp_ack_to_data_from_tc = Segment::new_empty(
-        Ack,
-        state.send_next + data_from_uut_len,
-        state.receive_next + data_from_tc_len,
-    );
-    expect_segment(&mut state, &exp_ack_to_data_from_tc);
+    // The uut retransmits its own data sent, but ack_num has been increased
+    // to ack what it got from the tc.
+    let mut new_exp_data_seg = exp_data_seg.clone();
+    new_exp_data_seg.set_ack_num(state.receive_next + data_from_tc_len);
+    expect_segment(&state, &new_exp_data_seg);
 
     // Ack the data from uut
     state.timer.expect_forever_sleep();
