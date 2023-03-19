@@ -586,6 +586,9 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     }
 }
 
+// TODO: Rename this to determine_retransmissions neede
+// Then the for loop can be shared beween this fast retransmit and
+// timeout.
 async fn handle_retransmissions_at_ack_recv(
     ack_num: u32,
     locked_connected_state: &mut LockedConnectedState<'_>,
