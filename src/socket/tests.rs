@@ -679,7 +679,6 @@ fn af_first_segment_acked_but_not_second() {
     state.timer.expect_sleep();
     send_segment(&state, &ack1);
     state.timer.wait_for_call();
-    thread::sleep(Duration::from_millis(10));
 
     // But when the timer expires...
     state.timer.re_expect_trigger_wait();
