@@ -48,7 +48,7 @@ impl MockTimer {
             .expect("Expect sleep called, but sleep already expected");
     }
 
-    pub fn wait_for_call_to_sleep(&self) {
+    pub fn wait_for_call(&self) {
         block_on(async {
             let duration = Duration::from_millis(10);
             let recv_sleep_called = self.sleep_called_rx.recv();
