@@ -480,9 +480,12 @@ async fn connected_loop<T: Timer>(
             },
 
             _ = future_timeout => {
-                let locked_connected_state = state.lock().await;
+                let mut locked_connected_state = state.lock().await;
+                let receive_next = locked_connected_state.receive_next;
 
-                for segment in &locked_connected_state.send_buffer {
+                for segment in &mut locked_connected_state.send_buffer {
+                    *segment = segment.set_ack_num(receive_next);
+                    // println!("Sendingg {:?}", segment);
                     send_segment(
                         &udp_socket,
                         udp_socket.peer_addr().unwrap(),
@@ -575,7 +578,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         // acked, we made progresss, and if something wasn't acked, we
         // retransmitted
         assert!(segments_remain || !retransmitted);
-        let restart_timer = retransmitted;
+        let restart_timer = segments_remain;
         RecvSocketResult::Continue(state, restart_timer)
     } else {
         RecvSocketResult::Exit
@@ -606,19 +609,22 @@ async fn handle_retransmissions_at_ack_recv(
             send_segment(state.udp_socket, peer_addr, &seg).await;
         }
     }
+    // println!("Need retransmit {:?}", need_retransmit);
     (segments_remain, need_retransmit)
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
+    // println!("buffer before: {:?}", buffer);
+    // println!("ack_num: {:?}", ack_num);
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
-        // Why >= and not >?
-
         let virtual_len = match first_unacked_segment.kind() {
             Ack => first_unacked_segment.data().len(),
             Fin => 1,
             _ => panic!("Should not have other kinds in this buffer"),
         };
+
+        // Why >= and not >?
 
         // RFC 793 explicitely says "A segment on the retransmission queue is
         // fully acknowledged if the sum of its sequence number and length is
@@ -635,6 +641,7 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
             break;
         }
     }
+    // println!("buffer after: {:?}", buffer);
 }
 
 fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {

@@ -569,11 +569,9 @@ fn af_client_retransmits_data_due_to_old_ack() {
     expect_segment(&state, &recv_seg2);
 
     // Now the tc sends ack for both of them
-    state.timer.expect_sleep();
     let send_ack1 =
         Segment::new_empty(Ack, state.receive_next, initial_send_next + len1);
     send_segment(&state, &send_ack1);
-    state.timer.wait_for_call();
 
     state.timer.expect_forever_sleep();
     let send_ack2 = Segment::new_empty(
@@ -676,14 +674,18 @@ fn af_first_segment_acked_but_not_second() {
     let ack1 =
         Segment::new_empty(Ack, state.receive_next, initial_send_next + len1);
 
-    // TC sends Ack for the first segment, but not the second
-    // This causes the timer to be restarted
+    // TC sends Ack for the first segment, but not the second.
+    // This causes the timer to be restarted because progress was made.
     state.timer.expect_sleep();
     send_segment(&state, &ack1);
     state.timer.wait_for_call();
+    thread::sleep(Duration::from_millis(10));
+
+    // But when the timer expires...
     state.timer.re_expect_trigger_wait();
 
-    // Only the unacked segment is retransmitted
+    println!("Re triggered");
+    // ...only the unacked segment is retransmitted
     expect_segment(&state, &recv_seg2);
 
     state.timer.expect_forever_sleep();
