@@ -177,6 +177,17 @@ fn mf_explicit_sequence_numbers() {
     timer.wait_for_call_to_sleep();
 
     //////////////////////////////////////////////////////////////////
+    // Read one byte
+    //////////////////////////////////////////////////////////////////
+
+    let seg_read2 = Segment::new(Ack, 2015, 1011, b"y");
+    send_segment_to(&tc_socket, uut_addr, &seg_read2);
+
+    let exp_ack_read2 = Segment::new_empty(Ack, 1011, 2016);
+    let ack_read2 = recv_segment_from(&tc_socket, uut_addr);
+    assert_eq!(exp_ack_read2, ack_read2);
+
+    //////////////////////////////////////////////////////////////////
     // Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
@@ -184,12 +195,12 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.shutdown();
     timer.wait_for_call_to_sleep();
 
-    let exp_fin = Segment::new_empty(Fin, 1011, 2015);
+    let exp_fin = Segment::new_empty(Fin, 1011, 2016);
     let fin_from_uut = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
     timer.expect_forever_sleep();
-    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1012);
+    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2016, 1012);
     send_segment_to(&tc_socket, uut_addr, &ack_to_fin_from_uut);
     timer.wait_for_call_to_sleep();
 
@@ -197,10 +208,10 @@ fn mf_explicit_sequence_numbers() {
     // Shutdown from tc
     //////////////////////////////////////////////////////////////////
 
-    let fin_from_tc = Segment::new_empty(Fin, 2015, 1012);
+    let fin_from_tc = Segment::new_empty(Fin, 2016, 1012);
     send_segment_to(&tc_socket, uut_addr, &fin_from_tc);
 
-    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1012, 2016);
+    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1012, 2017);
     let ack_to_fin_from_tc = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
 
