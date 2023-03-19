@@ -25,15 +25,28 @@ const MAXIMUM_RECV_BUFFER_SIZE: usize = 10;
 
 #[async_trait]
 trait Timer {
-    async fn sleep(&self, duration: Duration);
+    async fn sleep(&self, duration: SleepDuration);
+}
+
+#[derive(Debug, PartialEq)]
+enum SleepDuration {
+    Finite(Duration),
+    Forever,
 }
 
 struct PlainTimer {}
 
 #[async_trait]
 impl Timer for PlainTimer {
-    async fn sleep(&self, duration: Duration) {
-        async_std::task::sleep(duration).await;
+    async fn sleep(&self, duration: SleepDuration) {
+        match duration {
+            SleepDuration::Finite(duration) => {
+                async_std::task::sleep(duration).await;
+            }
+            SleepDuration::Forever => {
+                async_std::task::sleep(Duration::from_secs(1000000000)).await;
+            }
+        }
     }
 }
 
@@ -132,15 +145,14 @@ impl Stream {
     pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
         // TODO: See if Arc can be removed in non-test code
         let timer = Arc::new(PlainTimer {});
-        Self::connect_custom_timer(timer, peer_addr)
+        let init_seq_num = rand::random();
+        Self::connect_custom(timer, peer_addr, init_seq_num)
     }
 
-    fn connect_custom_timer<
-        T: Timer + Send + Sync + 'static,
-        A: ToSocketAddrs,
-    >(
+    fn connect_custom<T: Timer + Send + Sync + 'static, A: ToSocketAddrs>(
         timer: Arc<T>,
         peer_addr: A,
+        init_seq_num: u32,
     ) -> Result<Stream> {
         let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
 
@@ -151,7 +163,7 @@ impl Stream {
             Ok(udp_socket) => {
                 let (send_next, receive_next) = block_on(async {
                     UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
-                    Self::client_handshake(&udp_socket).await
+                    Self::client_handshake(&udp_socket, init_seq_num).await
                 });
 
                 let state = ConnectedState {
@@ -196,9 +208,12 @@ impl Stream {
         }
     }
 
-    async fn client_handshake(udp_socket: &UdpSocket) -> (u32, u32) {
+    async fn client_handshake(
+        udp_socket: &UdpSocket,
+        init_seq_num: u32,
+    ) -> (u32, u32) {
         // Send SYN
-        let send_next = rand::random();
+        let send_next = init_seq_num;
         let syn = Segment::new_empty(Syn, send_next, 0);
         let encoded_syn = Segment::encode(&syn);
 
@@ -436,7 +451,7 @@ async fn connected_loop<T: Timer>(
                     if restart_timer {
                         future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
-                    } else {
+                    } else if timer_running {
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(&timer, true).fuse());
                         timer_running = false;
@@ -483,9 +498,12 @@ async fn connected_loop<T: Timer>(
 
 async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
     if forever {
-        async_std::task::sleep(Duration::from_secs(1000000000)).await;
+        timer.sleep(SleepDuration::Forever).await;
+        panic!("Forever sleep returned");
     } else {
-        timer.sleep(RETRANSMISSION_TIMER).await;
+        timer
+            .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
+            .await;
     }
 }
 
@@ -590,9 +608,17 @@ async fn handle_retransmissions_at_ack_recv(
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
-        // TODO: Need to investigate if tc should send ack_num+1
-        // TODO: Check > vs >= with tests. It was caught thanks to FIN being 1
-        // But a test with one-length data is needed to catch other off-by-one
+        // Why >= and not >?
+
+        // RFC 793 explicitely says "A segment on the retransmission queue is
+        // fully acknowledged if the sum of its sequence number and length is
+        // less or equal than the acknowledgment value in the incoming segment."
+
+        // Another way to understand it is that seq_num is the number/index of
+        // the first byte in the segment.  So if seq_num=3 and len=2, it means
+        // the segment contains byte number 3 and 4, and the next byte to send
+        // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
+        // expect from you is number 5".
         if ack_num
             >= first_unacked_segment.seq_num()
                 + first_unacked_segment.data().len() as u32
