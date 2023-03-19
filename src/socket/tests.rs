@@ -547,12 +547,7 @@ fn af_uut_retransmits_data_and_fin() {
     state.timer.wait_for_call_to_sleep();
 
     // Send FIN from uut
-    uut_stream(&mut state).shutdown();
-
-    // TODO: Make uut_shutdown helper
-    let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
-    expect_segment(&state, &exp_fin);
-    state.uut_seq_num += 1;
+    let exp_fin = uut_shutdown(&mut state);
 
     // tc pretends it didn't get the data or FIN, so the timer expires
     state.timer.trigger_and_expect_new_call();
@@ -1122,34 +1117,38 @@ fn main_flow_uut_shutdown_last(state: &mut State) {
     main_flow_uut_shutdown_helper(state, |_state| (), |_state| ());
 }
 
+// This helper is supposed to mirror main_flow_uut_write
 fn main_flow_uut_shutdown_helper(
     state: &mut State,
     expect_sleep: fn(&mut State),
     wait_sleep: fn(&mut State),
 ) {
-    // To make sure the buffer is empty so that a new timer call
-    // will be made
-    thread::sleep(Duration::from_millis(1));
-
     state.timer.expect_sleep();
-    uut_stream(state).shutdown();
+    uut_shutdown(state);
     state.timer.wait_for_call_to_sleep();
+
+    // tc sends ACK to the FIN
+    expect_sleep(state);
+    let ack_to_fin = Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num);
+    send_segment(&state, &ack_to_fin);
+    wait_sleep(state);
+}
+
+// This helper is supposed to mirror uut_write
+fn uut_shutdown(state: &mut State) -> Segment {
+    // Shutdown from the uut
+    uut_stream(state).shutdown();
 
     // Since FIN has been sent, write fails
     let write_result = uut_stream(state).write(b"some data");
     assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
 
-    // uut sends FIN
+    // Recv FIN from the tc
     let exp_fin = Segment::new_empty(Fin, state.uut_seq_num, state.tc_seq_num);
     expect_segment(&state, &exp_fin);
-
-    // tc sends ACK to the FIN
-    expect_sleep(state);
-    let ack_to_fin =
-        Segment::new_empty(Ack, state.tc_seq_num, state.uut_seq_num + 1);
-    send_segment(&state, &ack_to_fin);
-    wait_sleep(state);
     state.uut_seq_num += 1;
+
+    exp_fin
 }
 
 fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
