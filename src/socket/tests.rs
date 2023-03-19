@@ -414,23 +414,28 @@ fn mf_simultaneous_read_and_write() {
     let data_from_tc_len = data_from_tc.len() as u32;
     let seg_from_tc =
         Segment::new(Ack, state.receive_next, state.send_next, data_from_tc);
+
+    // uut restarts the timer, because ack_num from tc is old, so nothing
+    // was acked, and "fast retransmit" kicks in
     state.timer.expect_sleep();
     send_segment(&state, &seg_from_tc);
     state.timer.wait_for_call();
 
     expect_read(&mut state, &[data_from_tc]);
 
-    // First the uut retransmits its data, because the ack num concerns old data.
-    // I.e. due to "fast retransmit", it's sent again.
+    // First uut retransmits its own segment it first sent
     expect_segment(&state, &exp_data_seg);
 
+    // TODO: The above should use the new ack_num and the below be skipped.
+    // It's important that the new ack_num is sent to prevent endless looping.
+
     // Then the uut acks the data from the tc
-    let exp_ack = Segment::new_empty(
+    let exp_ack_to_data_from_tc = Segment::new_empty(
         Ack,
         state.send_next + data_from_uut_len,
         state.receive_next + data_from_tc_len,
     );
-    expect_segment(&mut state, &exp_ack);
+    expect_segment(&mut state, &exp_ack_to_data_from_tc);
 
     // Ack the data from uut
     state.timer.expect_forever_sleep();
