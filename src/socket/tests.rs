@@ -66,6 +66,9 @@ use crate::segment::Segment;
 //   than the border
 // - ef: close causes segment to be lost
 // - af: Simultaneous FIN
+// - mf: single byte read and written
+// - af: FIN is sent, but the segment before was lost. I.e. out of order with
+//       FIN
 
 ////////////////////////////////////////////////////////////////////////////////
 // Main flow test cases
@@ -264,6 +267,44 @@ fn mf_shutdown_uut_before_tc_read_after_shutdown() {
     main_flow_uut_shutdown(&mut state);
     main_flow_uut_read(&mut state, b"some data");
     main_flow_tc_shutdown(&mut state);
+
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn mf_simultaneous_shutdown() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    // uut sends FIN
+    state.timer.expect_sleep();
+    uut_stream(&mut state).shutdown();
+    state.timer.wait_for_call();
+
+    let exp_fin = Segment::new_empty(Fin, state.send_next, state.receive_next);
+    expect_segment(&state, &exp_fin);
+
+    // tc sends FIN
+    state.timer.expect_sleep();
+    let fin_from_tc =
+        Segment::new_empty(Fin, state.receive_next, state.send_next);
+    send_segment(&state, &fin_from_tc);
+    state.timer.wait_for_call();
+
+    // The same FIN is retransmitted, because the ack num concerns old data.
+    // I.e. due to "fast retransmit", it's sent again.
+    expect_segment(&mut state, &exp_fin);
+
+    // And after that, an ACK to the tc's FIN is sent
+    let exp_ack_to_fin =
+        Segment::new_empty(Ack, state.send_next + 1, state.receive_next + 1);
+    expect_segment(&mut state, &exp_ack_to_fin);
+
+    let ack_to_fin =
+        Segment::new_empty(Ack, state.receive_next + 1, state.send_next + 1);
+    send_segment(&mut state, &ack_to_fin);
 
     wait_shutdown_complete(state);
 }
@@ -1130,7 +1171,7 @@ fn uut_shutdown(state: &mut State) -> Segment {
     let write_result = uut_stream(state).write(b"some data");
     assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
 
-    // Recv FIN from the tc
+    // Recv FIN from the uut
     let exp_fin = Segment::new_empty(Fin, state.send_next, state.receive_next);
     expect_segment(&state, &exp_fin);
     state.send_next += 1;
