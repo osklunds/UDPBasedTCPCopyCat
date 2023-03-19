@@ -167,7 +167,7 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.write(b"x").unwrap();
     timer.wait_for_call_to_sleep();
 
-    let exp_seg_write3= Segment::new(Ack, 1010, 2015, b"x");
+    let exp_seg_write3 = Segment::new(Ack, 1010, 2015, b"x");
     let seg_write3 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_seg_write3, seg_write3);
 

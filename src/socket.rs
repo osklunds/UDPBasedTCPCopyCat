@@ -608,6 +608,17 @@ async fn handle_retransmissions_at_ack_recv(
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
+        // Why >= and not >?
+
+        // RFC 793 explicitely says "A segment on the retransmission queue is
+        // fully acknowledged if the sum of its sequence number and length is
+        // less or equal than the acknowledgment value in the incoming segment."
+
+        // Another way to understand it is that seq_num is the number/index of
+        // the first byte in the segment.  So if seq_num=3 and len=2, it means
+        // the segment contains byte number 3 and 4, and the next byte to send
+        // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
+        // expect from you is number 5".
         if ack_num
             >= first_unacked_segment.seq_num()
                 + first_unacked_segment.data().len() as u32
