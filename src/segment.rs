@@ -4,8 +4,10 @@ mod tests;
 use self::Kind::*;
 use rand::distributions::{Distribution, Standard};
 use rand::Rng;
+use std::fmt;
+use std::str;
 
-#[derive(Eq, PartialEq, Debug, Clone)]
+#[derive(Eq, PartialEq, Clone)]
 pub struct Segment {
     kind: Kind,
     seq_num: u32,
@@ -134,5 +136,22 @@ impl Segment {
 
     pub fn to_data(self) -> Vec<u8> {
         self.data
+    }
+}
+
+impl fmt::Debug for Segment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let formatted_data = if let Ok(s) = str::from_utf8(&self.data) {
+            s
+        } else {
+            &format!("{:?}", &self.data)
+        };
+
+        f.debug_struct("Segment")
+            .field("kind", &self.kind)
+            .field("seq_num", &self.seq_num)
+            .field("ack_num", &self.ack_num)
+            .field("data", &formatted_data)
+            .finish()
     }
 }

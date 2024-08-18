@@ -442,16 +442,16 @@ async fn connected_loop<T: Timer>(
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                if let RecvSocketResult::Continue(new_recv_socket_state, restart_timer) = new_recv_socket_state {
+                if let RecvSocketResult::Continue(new_recv_socket_state, _restart_timer) = new_recv_socket_state {
+                    let locked_connected_state = new_recv_socket_state.connected_state.lock().await;
+                    let buffer_is_empty = locked_connected_state.send_buffer.is_empty();
+                    drop(locked_connected_state);
+
                     let new_future_recv_socket =
                         recv_socket(new_recv_socket_state).fuse();
                     future_recv_socket.set(new_future_recv_socket);
 
-                    // TODO: enum with Restart and Cancel
-                    if restart_timer {
-                        future_timeout.set(timeout(&timer, false).fuse());
-                        timer_running = true;
-                    } else if timer_running {
+                    if buffer_is_empty && timer_running {
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(&timer, true).fuse());
                         timer_running = false;
@@ -554,17 +554,12 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     }
 
     let should_continue =
-        process_recv_buffer(&state, &mut locked_connected_state).await;
+        deliver_data_to_application(&state, &mut locked_connected_state).await;
 
-    let (segments_remain, retransmitted) = handle_retransmissions_at_ack_recv(
-        ack_num,
-        &mut locked_connected_state,
-        &state,
-    )
-    .await;
+    removed_acked_segments(ack_num, &mut locked_connected_state.send_buffer);
 
     let ack_needed = len > 0 || kind == Fin;
-    if ack_needed && !retransmitted {
+    if ack_needed {
         send_ack(&state, &mut locked_connected_state, peer_addr).await;
     }
 
@@ -575,46 +570,11 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         RecvSocketResult::Exit
     } else if should_continue {
         drop(locked_connected_state);
-        // If segments remain, restart the timer, because if something was
-        // acked, we made progresss, and if something wasn't acked, we
-        // retransmitted
-        assert!(segments_remain || !retransmitted);
-        let restart_timer = segments_remain;
+        let restart_timer = false; // TODO: Might never be true
         RecvSocketResult::Continue(state, restart_timer)
     } else {
         RecvSocketResult::Exit
     }
-}
-
-// TODO: Rename this to determine_retransmissions neede
-// Then the for loop can be shared beween this fast retransmit and
-// timeout.
-async fn handle_retransmissions_at_ack_recv(
-    ack_num: u32,
-    locked_connected_state: &mut LockedConnectedState<'_>,
-    state: &RecvSocketState<'_>,
-) -> (bool, bool) {
-    let receive_next = locked_connected_state.receive_next;
-    let buffer = &mut locked_connected_state.send_buffer;
-    let buffer_len_before = buffer.len();
-    removed_acked_segments(ack_num, buffer);
-    let buffer_len_after = buffer.len();
-
-    let peer_addr = state.udp_socket.peer_addr().unwrap();
-
-    // Make sure this if statement is thoroughly tested
-    assert!(buffer_len_after <= buffer_len_before);
-    let made_progress = buffer_len_after < buffer_len_before;
-    let segments_remain = buffer_len_after > 0;
-    let need_retransmit = segments_remain && !made_progress;
-    if need_retransmit {
-        for seg in buffer {
-            *seg = seg.set_ack_num(receive_next);
-            send_segment(state.udp_socket, peer_addr, &seg).await;
-        }
-    }
-    // println!("Need retransmit {:?}", need_retransmit);
-    (segments_remain, need_retransmit)
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
@@ -655,7 +615,7 @@ fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
     }
 }
 
-async fn process_recv_buffer(
+async fn deliver_data_to_application(
     state: &RecvSocketState<'_>,
     locked_connected_state: &mut LockedConnectedState<'_>,
 ) -> bool {
