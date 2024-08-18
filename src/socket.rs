@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::cell::Cell;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -179,16 +180,21 @@ impl Stream {
                 let state_in_arc = Arc::new(state_in_mutex);
                 let state_for_loop = Arc::clone(&state_in_arc);
 
+                let temp_peer_addr = udp_socket.peer_addr().unwrap();
+
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        block_on(connected_loop(
+                        let mut cl = ConnectedLoop::new(
                             timer,
                             state_for_loop,
                             udp_socket,
+                            temp_peer_addr,
                             peer_action_tx,
                             user_action_rx,
-                        ))
+                        );
+
+                        block_on(cl.connected_loop())
                     })
                     .unwrap();
                 let client_stream = ClientStream {
@@ -405,326 +411,338 @@ impl ServerStream {
     }
 }
 
-async fn connected_loop<T: Timer>(
+struct ConnectedLoop<T> {
     timer: Arc<T>,
-    state: Arc<Mutex<ConnectedState>>,
+    connected_state: Arc<Mutex<ConnectedState>>,
     udp_socket: UdpSocket,
+    peer_addr: SocketAddr,
     peer_action_tx: Sender<PeerAction>,
     user_action_rx: Receiver<UserAction>,
-) {
-    let recv_socket_state = RecvSocketState {
-        udp_socket: &udp_socket,
-        peer_action_tx,
-        connected_state: Arc::clone(&state),
-    };
-    let recv_user_action_state = RecvUserActionState {
-        udp_socket: &udp_socket,
-        user_action_rx,
-        connected_state: Arc::clone(&state),
-    };
+    timer_running: Cell<bool>,
+}
 
-    let future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let future_recv_user_action =
-        recv_user_action(recv_user_action_state).fuse();
-    let future_timeout = timeout(&timer, true).fuse();
+impl<T: Timer> ConnectedLoop<T> {
+    pub fn new(
+        timer: Arc<T>,
+        connected_state: Arc<Mutex<ConnectedState>>,
+        udp_socket: UdpSocket,
+        peer_addr: SocketAddr,
+        peer_action_tx: Sender<PeerAction>,
+        user_action_rx: Receiver<UserAction>,
+    ) -> Self {
+        Self {
+            timer,
+            connected_state,
+            udp_socket,
+            peer_addr,
+            peer_action_tx,
+            user_action_rx,
+            timer_running: Cell::new(false)
+        }
+    }
 
-    // TODO: Maybe move to connected state. Maybe it can be cleaned up
-    // in some other better way.
-    let mut timer_running = false;
-    pin_mut!(future_recv_socket, future_recv_user_action, future_timeout);
-    loop {
-        select! {
-            recv_socket_state = future_recv_socket => {
-                if let Some(recv_socket_state) = recv_socket_state {
-                    future_recv_socket.set(recv_socket(
-                        recv_socket_state).fuse());
-                } else {
-                    return;
+    pub async fn connected_loop(&mut self) {
+        let future_recv_socket = self.recv_socket().fuse();
+        let future_recv_user_action = self.recv_user_action().fuse();
+        let future_timeout = self.timeout(true).fuse();
+
+        pin_mut!(future_recv_socket, future_recv_user_action, future_timeout);
+        loop {
+            select! {
+                segment = future_recv_socket => {
+                    future_recv_socket.set(self.recv_socket().fuse());
+                    if !self.handle_received_segment(segment).await {
+                        return;
+                    }
+                },
+
+                user_action = future_recv_user_action => {
+                    future_recv_user_action.set(self.recv_user_action().fuse());
+
+                    if !self.handle_received_user_action(user_action).await {
+                        return;
+                    }
+                },
+
+                _ = future_timeout => {
+                    future_timeout.set(self.timeout(false).fuse());
+
+                    self.handle_retransmit().await;
                 }
-            },
+            };
+            let buffer_is_empty = self.connected_state.lock().await.send_buffer.is_empty();
 
-            recv_user_action_state = future_recv_user_action => {
-                if let Some(recv_user_action_state) = recv_user_action_state {
-                    future_recv_user_action.set(recv_user_action(
-                        recv_user_action_state).fuse());
-                } else {
-                    return;
-                }
-            },
-
-            _ = future_timeout => {
-                let mut locked_connected_state = state.lock().await;
-                let receive_next = locked_connected_state.receive_next;
-
-                for segment in &mut locked_connected_state.send_buffer {
-                    *segment = segment.set_ack_num(receive_next);
-                    // TODO: Add a test for the line above
-                    // println!("Sendingg {:?}", segment);
-                    send_segment(
-                        &udp_socket,
-                        udp_socket.peer_addr().unwrap(),
-                        &segment
-                    ).await;
-                }
-
-                future_timeout.set(timeout(&timer, false).fuse());
+            // TODO: Make sure all combinations are tested
+            if buffer_is_empty && self.timer_running.get() {
+                future_timeout.set(self.timeout(true).fuse());
+                self.timer_running.set(false);
+            } else if !buffer_is_empty && !self.timer_running.get() {
+                future_timeout.set(self.timeout(false).fuse());
+                self.timer_running.set(true);
             }
-        };
-        let buffer_is_empty = state.lock().await.send_buffer.is_empty();
-
-        // TODO: Make sure all combinations are tested
-        if buffer_is_empty && timer_running {
-            future_timeout.set(timeout(&timer, true).fuse());
-            timer_running = false;
-        } else if !buffer_is_empty && !timer_running {
-            future_timeout.set(timeout(&timer, false).fuse());
-            timer_running = true;
         }
     }
-}
 
-struct RecvSocketState<'a> {
-    udp_socket: &'a UdpSocket,
-    peer_action_tx: Sender<PeerAction>,
-    connected_state: Arc<Mutex<ConnectedState>>,
-}
-
-async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
-    let peer_addr = state.udp_socket.peer_addr().unwrap();
-    let segment = recv_segment(state.udp_socket, peer_addr).await;
-
-    let ack_num = segment.ack_num();
-    let seq_num = segment.seq_num();
-    let len = segment.data().len() as u32;
-    let kind = segment.kind();
-
-    let mut locked_connected_state = state.connected_state.lock().await;
-
-    // TODO: Reject invalid segments instead
-    // The segment shouldn't ack something not sent
-    assert!(locked_connected_state.send_next >= segment.ack_num());
-
-    if locked_connected_state.fin_received {
-        // If FIN has been received, the peer shouldn't send anything
-        // new
-        assert!(locked_connected_state.receive_next >= seq_num);
+    async fn recv_socket(&self) -> Segment {
+        let peer_addr = self.udp_socket.peer_addr().unwrap();
+        let mut buf = [0; 4096];
+        let (amt, recv_addr) = self.udp_socket.recv_from(&mut buf).await.unwrap();
+        assert_eq!(peer_addr, recv_addr);
+        Segment::decode(&buf[0..amt]).unwrap()
     }
 
-    assert!(kind == Fin || kind == Ack);
-    if kind == Ack && len == 0 {
-        // Do nothing for a pure ACK
-        // TODO: Test off by one
-    } else if seq_num < locked_connected_state.receive_next {
-        // Ignore if too old
-    } else {
-        add_to_recv_buffer(&mut locked_connected_state.recv_buffer, segment);
-    }
+    async fn handle_received_segment(&self, segment: Segment) -> bool {
+        let ack_num = segment.ack_num();
+        let seq_num = segment.seq_num();
+        let len = segment.data().len() as u32;
+        let kind = segment.kind();
 
-    let channel_closed =
-        deliver_data_to_application(&state, &mut locked_connected_state).await;
+        let mut locked_connected_state = self.connected_state.lock().await;
 
-    removed_acked_segments(ack_num, &mut locked_connected_state.send_buffer);
+        // TODO: Reject invalid segments instead
+        // The segment shouldn't ack something not sent
+        assert!(locked_connected_state.send_next >= segment.ack_num());
 
-    let ack_needed = len > 0 || kind == Fin;
-    if ack_needed {
-        send_ack(&state, &mut locked_connected_state, peer_addr).await;
-    }
+        if locked_connected_state.fin_received {
+            // If FIN has been received, the peer shouldn't send anything
+            // new
+            assert!(locked_connected_state.receive_next >= seq_num);
+        }
 
-    let shutdown_complete = locked_connected_state.send_buffer.is_empty()
-        && locked_connected_state.fin_sent
-        && locked_connected_state.fin_received;
-
-    if shutdown_complete || channel_closed {
-        None
-    } else {
-        drop(locked_connected_state);
-        Some(state)
-    }
-}
-
-fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
-    // println!("buffer before: {:?}", buffer);
-    // println!("ack_num: {:?}", ack_num);
-    while buffer.len() > 0 {
-        let first_unacked_segment = &buffer[0];
-        let virtual_len = match first_unacked_segment.kind() {
-            Ack => first_unacked_segment.data().len(),
-            Fin => 1,
-            _ => panic!("Should not have other kinds in this buffer"),
-        };
-
-        // Why >= and not >?
-
-        // RFC 793 explicitely says "A segment on the retransmission queue is
-        // fully acknowledged if the sum of its sequence number and length is
-        // less or equal than the acknowledgment value in the incoming segment."
-
-        // Another way to understand it is that seq_num is the number/index of
-        // the first byte in the segment.  So if seq_num=3 and len=2, it means
-        // the segment contains byte number 3 and 4, and the next byte to send
-        // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
-        // expect from you is number 5".
-        if ack_num >= first_unacked_segment.seq_num() + virtual_len as u32 {
-            buffer.remove(0);
+        assert!(kind == Fin || kind == Ack);
+        if kind == Ack && len == 0 {
+            // Do nothing for a pure ACK
+            // TODO: Test off by one
+        } else if seq_num < locked_connected_state.receive_next {
+            // Ignore if too old
         } else {
-            break;
+            self.add_to_recv_buffer(
+                &mut locked_connected_state.recv_buffer,
+                segment,
+            );
+        }
+
+        let channel_closed = self
+            .deliver_data_to_application(&mut locked_connected_state)
+            .await;
+
+        self.removed_acked_segments(
+            ack_num,
+            &mut locked_connected_state.send_buffer,
+        );
+
+        let ack_needed = len > 0 || kind == Fin;
+        if ack_needed {
+            self.send_ack(&mut locked_connected_state).await;
+        }
+
+        let shutdown_complete = locked_connected_state.send_buffer.is_empty()
+            && locked_connected_state.fin_sent
+            && locked_connected_state.fin_received;
+
+        if shutdown_complete || channel_closed {
+            false
+        } else {
+            drop(locked_connected_state);
+            true
         }
     }
-    // println!("buffer after: {:?}", buffer);
-}
 
-fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
-    buffer.insert(segment.seq_num(), segment);
-    if buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
-        buffer.pop_last();
+    fn removed_acked_segments(
+        &self,
+        ack_num: u32,
+        buffer: &mut Vec<Segment>,
+    ) {
+        // println!("buffer before: {:?}", buffer);
+        // println!("ack_num: {:?}", ack_num);
+        while buffer.len() > 0 {
+            let first_unacked_segment = &buffer[0];
+            let virtual_len = match first_unacked_segment.kind() {
+                Ack => first_unacked_segment.data().len(),
+                Fin => 1,
+                _ => panic!("Should not have other kinds in this buffer"),
+            };
+
+            // Why >= and not >?
+
+            // RFC 793 explicitely says "A segment on the retransmission queue is
+            // fully acknowledged if the sum of its sequence number and length is
+            // less or equal than the acknowledgment value in the incoming segment."
+
+            // Another way to understand it is that seq_num is the number/index of
+            // the first byte in the segment.  So if seq_num=3 and len=2, it means
+            // the segment contains byte number 3 and 4, and the next byte to send
+            // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
+            // expect from you is number 5".
+            if ack_num >= first_unacked_segment.seq_num() + virtual_len as u32 {
+                buffer.remove(0);
+            } else {
+                break;
+            }
+        }
+        // println!("buffer after: {:?}", buffer);
     }
-}
 
-async fn deliver_data_to_application(
-    state: &RecvSocketState<'_>,
-    locked_connected_state: &mut LockedConnectedState<'_>,
-) -> bool {
-    loop {
-        if let Some((seq_num, first_segment)) =
-            locked_connected_state.recv_buffer.pop_first()
-        {
-            assert_eq!(seq_num, first_segment.seq_num());
-            let len = first_segment.data().len() as u32;
-            assert!(seq_num >= locked_connected_state.receive_next);
-            if seq_num == locked_connected_state.receive_next {
-                if first_segment.kind() == Fin {
-                    assert!(len == 0);
-                    assert!(!locked_connected_state.fin_received);
-                    locked_connected_state.fin_received = true;
-                    locked_connected_state.receive_next += 1;
+    fn add_to_recv_buffer(
+        &self,
+        buffer: &mut BTreeMap<u32, Segment>,
+        segment: Segment,
+    ) {
+        buffer.insert(segment.seq_num(), segment);
+        if buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
+            buffer.pop_last();
+        }
+    }
 
-                    match state.peer_action_tx.send(PeerAction::EOF).await {
-                        Ok(()) => (),
-                        Err(_) => return true,
+    async fn deliver_data_to_application(
+        &self,
+        locked_connected_state: &mut LockedConnectedState<'_>,
+    ) -> bool {
+        loop {
+            if let Some((seq_num, first_segment)) =
+                locked_connected_state.recv_buffer.pop_first()
+            {
+                assert_eq!(seq_num, first_segment.seq_num());
+                let len = first_segment.data().len() as u32;
+                assert!(seq_num >= locked_connected_state.receive_next);
+                if seq_num == locked_connected_state.receive_next {
+                    if first_segment.kind() == Fin {
+                        assert!(len == 0);
+                        assert!(!locked_connected_state.fin_received);
+                        locked_connected_state.fin_received = true;
+                        locked_connected_state.receive_next += 1;
+
+                        match self.peer_action_tx.send(PeerAction::EOF).await {
+                            Ok(()) => (),
+                            Err(_) => return true,
+                        }
+                    } else {
+                        assert!(len > 0);
+                        assert!(first_segment.kind() == Ack);
+
+                        locked_connected_state.receive_next += len;
+                        let data = first_segment.to_data();
+                        match self
+                            .peer_action_tx
+                            .send(PeerAction::Data(data))
+                            .await
+                        {
+                            Ok(()) => (),
+                            Err(_) => return true,
+                        }
                     }
                 } else {
-                    assert!(len > 0);
-                    assert!(first_segment.kind() == Ack);
-
-                    locked_connected_state.receive_next += len;
-                    let data = first_segment.to_data();
-                    match state
-                        .peer_action_tx
-                        .send(PeerAction::Data(data))
-                        .await
-                    {
-                        Ok(()) => (),
-                        Err(_) => return true,
-                    }
+                    locked_connected_state
+                        .recv_buffer
+                        .insert(seq_num, first_segment);
+                    return false;
                 }
             } else {
-                locked_connected_state
-                    .recv_buffer
-                    .insert(seq_num, first_segment);
                 return false;
             }
-        } else {
-            return false;
         }
     }
-}
 
-async fn send_ack(
-    state: &RecvSocketState<'_>,
-    locked_connected_state: &mut LockedConnectedState<'_>,
-    peer_addr: SocketAddr,
-) {
-    let ack = Segment::new_empty(
-        Ack,
-        locked_connected_state.send_next,
-        locked_connected_state.receive_next,
-    );
-    send_segment(state.udp_socket, peer_addr, &ack).await;
-}
+    async fn send_ack(
+        &self,
+        locked_connected_state: &mut LockedConnectedState<'_>,
+    ) {
+        let ack = Segment::new_empty(
+            Ack,
+            locked_connected_state.send_next,
+            locked_connected_state.receive_next,
+        );
+        self.send_segment(&ack).await;
+    }
 
-struct RecvUserActionState<'a> {
-    udp_socket: &'a UdpSocket,
-    user_action_rx: Receiver<UserAction>,
-    connected_state: Arc<Mutex<ConnectedState>>,
-}
+    async fn recv_user_action(
+        &self,
+    ) -> Option<UserAction> {
+        match self.user_action_rx.recv().await {
+            Ok(user_action) => {
+                Some(user_action)
+            }
+            Err(_) => None
+        }
+    }
 
-async fn recv_user_action(
-    state: RecvUserActionState<'_>,
-) -> Option<RecvUserActionState> {
-    match state.user_action_rx.recv().await {
-        Ok(user_action) => {
-            let mut locked_connected_state = state.connected_state.lock().await;
+    async fn handle_received_user_action(
+        &self,
+        user_action: Option<UserAction>,
+    ) -> bool {
+        let mut locked_connected_state = self.connected_state.lock().await;
 
-            match user_action {
-                UserAction::Shutdown => {
-                    let seg = Segment::new_empty(
-                        Fin,
+        match user_action {
+            Some(UserAction::Shutdown) => {
+                let seg = Segment::new_empty(
+                    Fin,
+                    locked_connected_state.send_next,
+                    locked_connected_state.receive_next,
+                );
+
+                self.send_segment(&seg).await;
+
+                locked_connected_state.send_next += 1;
+                locked_connected_state.send_buffer.push(seg);
+
+                locked_connected_state.fin_sent = true;
+            }
+            Some(UserAction::SendData(data)) => {
+                for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
+                    let seg = Segment::new(
+                        Ack,
                         locked_connected_state.send_next,
                         locked_connected_state.receive_next,
+                        &chunk,
                     );
 
-                    let peer_addr = state.udp_socket.peer_addr().unwrap();
-                    send_segment(state.udp_socket, peer_addr, &seg).await;
+                    self.send_segment(&seg).await;
 
-                    locked_connected_state.send_next += 1;
+                    locked_connected_state.send_next += chunk.len() as u32;
                     locked_connected_state.send_buffer.push(seg);
-
-                    locked_connected_state.fin_sent = true;
-                }
-                UserAction::SendData(data) => {
-                    for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
-                        let seg = Segment::new(
-                            Ack,
-                            locked_connected_state.send_next,
-                            locked_connected_state.receive_next,
-                            &chunk,
-                        );
-
-                        let peer_addr = state.udp_socket.peer_addr().unwrap();
-                        send_segment(state.udp_socket, peer_addr, &seg).await;
-
-                        locked_connected_state.send_next += chunk.len() as u32;
-                        locked_connected_state.send_buffer.push(seg);
-                    }
-                }
-                UserAction::Close => {
-                    return None;
                 }
             }
-
-            drop(locked_connected_state);
-            Some(state)
+            Some(UserAction::Close) => {
+                return false;
+            }
+            None => {
+                return false;
+            }
         }
-        Err(_) => None,
+
+        drop(locked_connected_state);
+        return true;
     }
-}
 
-async fn recv_segment(
-    udp_socket: &UdpSocket,
-    peer_addr: SocketAddr,
-) -> Segment {
-    let mut buf = [0; 4096];
-    let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
-    assert_eq!(peer_addr, recv_addr);
-    Segment::decode(&buf[0..amt]).unwrap()
-}
+    async fn send_segment(
+        &self,
+        segment: &Segment,
+    ) {
+        let encoded_seq = segment.encode();
+        self.udp_socket.send(&encoded_seq).await.unwrap();
+    }
 
-async fn send_segment(
-    udp_socket: &UdpSocket,
-    _peer_addr: SocketAddr,
-    segment: &Segment,
-) {
-    let encoded_seq = segment.encode();
-    udp_socket.send(&encoded_seq).await.unwrap();
-}
+    async fn timeout(&self, forever: bool) {
+        if forever {
+            self.timer.sleep(SleepDuration::Forever).await;
+            panic!("Forever sleep returned");
+        } else {
+            self.timer
+                .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
+                .await;
+        }
+    }
 
-async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
-    if forever {
-        timer.sleep(SleepDuration::Forever).await;
-        panic!("Forever sleep returned");
-    } else {
-        timer
-            .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
-            .await;
+    async fn handle_retransmit(&self) {
+        let locked_connected_state = self.connected_state.lock().await;
+        for segment in &locked_connected_state.send_buffer {
+            segment.set_ack_num(locked_connected_state.receive_next);
+            // TODO: Add a test for the line above
+            // println!("Sendingg {:?}", segment);
+            self.send_segment(
+                &segment
+            ).await;
+        }
+
     }
 }
