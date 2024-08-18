@@ -465,7 +465,6 @@ impl<'a> Connection<'a> {
             };
             let buffer_is_empty = self.send_buffer.is_empty();
 
-            // TODO: Make sure all combinations are tested
             if buffer_is_empty && self.timer_running {
                 future_timeout.set(Self::timeout(timer, true).fuse());
                 self.timer_running = false;
