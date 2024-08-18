@@ -436,20 +436,18 @@ async fn connected_loop<T: Timer>(
         select! {
             recv_socket_state = future_recv_socket => {
                 if let Some(recv_socket_state) = recv_socket_state {
-                    let locked_connected_state =
-                        recv_socket_state.connected_state.lock().await;
-                    let buffer_is_empty =
-                        locked_connected_state.send_buffer.is_empty();
-                    drop(locked_connected_state);
-
-                    future_recv_socket.set(recv_socket(
-                        recv_socket_state).fuse());
+                    let buffer_is_empty = 
+                        state.lock().await.send_buffer.is_empty();
 
                     if buffer_is_empty && timer_running {
                         // TODO: Remove/cancel instead
                         future_timeout.set(timeout(&timer, true).fuse());
                         timer_running = false;
                     }
+
+                    future_recv_socket.set(recv_socket(
+                        recv_socket_state).fuse());
+
                 } else {
                     return;
                 }
