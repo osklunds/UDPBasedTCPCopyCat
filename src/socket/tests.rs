@@ -680,6 +680,7 @@ fn af_uut_does_not_retransmit_data_due_to_old_ack() {
         Segment::new_empty(Ack, state.receive_next, initial_send_next);
     send_segment(&state, &send_ack0);
 
+    // No retransmission yet
     recv__expect_no_data(&state.tc_socket);
 
     state.timer.trigger();
@@ -1372,6 +1373,7 @@ fn recv_segment_with_addr(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
 }
 
 fn recv__expect_no_data(tc_socket: &UdpSocket) {
+    std::thread::sleep(Duration::from_millis(1));
     let mut buf = [0; 4096];
     match tc_socket.recv(&mut buf) {
         Err(err) => assert_eq!(ErrorKind::WouldBlock, err.kind()),
