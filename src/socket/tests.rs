@@ -654,6 +654,10 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
     shutdown(state);
 }
 
+// I initially had this "fast retransmit" mechanism. But it's hard to implement
+// in a good way. Suppose server and client are sending data to each other at
+// the same time. They might easily get outdated acks which causes a lot to
+// be resent.
 #[test]
 fn af_uut_does_not_retransmit_data_due_to_old_ack() {
     let mut state = setup_connected_uut_client();
