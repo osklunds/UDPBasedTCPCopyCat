@@ -418,7 +418,7 @@ struct ConnectedLoop<T> {
     peer_addr: SocketAddr,
     peer_action_tx: Sender<PeerAction>,
     user_action_rx: Receiver<UserAction>,
-    timer_running: Cell<bool>,
+    timer_running: bool,
 }
 
 impl<T: Timer> ConnectedLoop<T> {
@@ -437,7 +437,7 @@ impl<T: Timer> ConnectedLoop<T> {
             peer_addr,
             peer_action_tx,
             user_action_rx,
-            timer_running: Cell::new(false)
+            timer_running: false
         }
     }
 
@@ -473,12 +473,12 @@ impl<T: Timer> ConnectedLoop<T> {
             let buffer_is_empty = self.connected_state.lock().await.send_buffer.is_empty();
 
             // TODO: Make sure all combinations are tested
-            if buffer_is_empty && self.timer_running.get() {
+            if buffer_is_empty && self.timer_running {
                 future_timeout.set(Self::timeout(&self.timer, true).fuse());
-                self.timer_running.set(false);
-            } else if !buffer_is_empty && !self.timer_running.get() {
+                self.timer_running = false;
+            } else if !buffer_is_empty && !self.timer_running {
                 future_timeout.set(Self::timeout(&self.timer, false).fuse());
-                self.timer_running.set(true);
+                self.timer_running = true;
             }
         }
     }
