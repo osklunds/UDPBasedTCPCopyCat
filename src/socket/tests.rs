@@ -307,7 +307,8 @@ fn mf_simultaneous_shutdown() {
         Segment::new_empty(Fin, state.receive_next, state.send_next);
     send_segment(&state, &fin_from_tc);
 
-    let exp_ack_to_fin = Segment::new_empty(Ack, state.send_next + 1, state.receive_next + 1);
+    let exp_ack_to_fin =
+        Segment::new_empty(Ack, state.send_next + 1, state.receive_next + 1);
     recv__expect_segment(&mut state, &exp_ack_to_fin);
 
     // The tc acks the FIN
