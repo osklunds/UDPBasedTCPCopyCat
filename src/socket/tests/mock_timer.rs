@@ -65,10 +65,6 @@ impl MockTimer {
         });
     }
 
-    pub fn trigger(&self) {
-        self.let_sleep_return_tx.try_send(()).unwrap();
-    }
-
     pub fn test_end_check(&self) {
         block_on(async {
             // First check that the TC hasn't expected any sleep that hasn't
@@ -92,9 +88,9 @@ impl MockTimer {
         });
     }
 
-    pub fn re_expect_trigger_wait(&self) {
+    pub fn trigger(&self) {
         self.expect_start();
-        self.trigger();
+        self.let_sleep_return_tx.try_send(()).unwrap();
         self.wait_for_call();
     }
 }
