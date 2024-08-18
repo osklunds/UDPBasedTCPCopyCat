@@ -554,7 +554,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
     }
 
     let should_continue =
-        process_recv_buffer(&state, &mut locked_connected_state).await;
+        deliver_data_to_application(&state, &mut locked_connected_state).await;
 
     let (segments_remain, retransmitted) = handle_retransmissions_at_ack_recv(
         ack_num,
@@ -655,7 +655,7 @@ fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
     }
 }
 
-async fn process_recv_buffer(
+async fn deliver_data_to_application(
     state: &RecvSocketState<'_>,
     locked_connected_state: &mut LockedConnectedState<'_>,
 ) -> bool {
