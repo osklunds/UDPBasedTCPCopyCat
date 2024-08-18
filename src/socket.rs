@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::str;
@@ -15,7 +16,6 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::cell::Cell;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -170,15 +170,17 @@ impl Stream {
                     .name("client".to_string())
                     .spawn(move || {
                         let mut cl = ConnectedLoop::new(
-                            timer,
                             state,
-                            udp_socket,
+                            &udp_socket,
                             temp_peer_addr,
                             peer_action_tx,
-                            user_action_rx,
                         );
 
-                        block_on(cl.connected_loop())
+                        block_on(cl.connected_loop(
+                            &udp_socket,
+                            &user_action_rx,
+                            &timer,
+                        ))
                     })
                     .unwrap();
                 let client_stream = ClientStream {
@@ -405,61 +407,61 @@ struct ConnectedState {
 }
 
 // TODO: Rename to Connection
-struct ConnectedLoop<T> {
-    timer: Arc<T>,
+struct ConnectedLoop<'a> {
     connected_state: ConnectedState,
-    udp_socket: UdpSocket,
+    udp_socket: &'a UdpSocket,
     peer_addr: SocketAddr,
     peer_action_tx: Sender<PeerAction>,
-    user_action_rx: Receiver<UserAction>,
     timer_running: bool,
 }
 
-impl<T: Timer> ConnectedLoop<T> {
+impl<'a> ConnectedLoop<'a> {
     pub fn new(
-        timer: Arc<T>,
         connected_state: ConnectedState,
-        udp_socket: UdpSocket,
+        udp_socket: &'a UdpSocket,
         peer_addr: SocketAddr,
         peer_action_tx: Sender<PeerAction>,
-        user_action_rx: Receiver<UserAction>,
     ) -> Self {
         Self {
-            timer,
             connected_state,
             udp_socket,
             peer_addr,
             peer_action_tx,
-            user_action_rx,
-            timer_running: false
+            timer_running: false,
         }
     }
 
-    pub async fn connected_loop(&mut self) {
-        let future_recv_socket = Self::recv_socket(&self.udp_socket).fuse();
-        let future_recv_user_action = Self::recv_user_action(&self.user_action_rx).fuse();
-        let future_timeout = Self::timeout(&self.timer, true).fuse();
+    pub async fn connected_loop<T: Timer>(
+        &mut self,
+        udp_socket: &UdpSocket,
+        user_action_rx: &Receiver<UserAction>,
+        timer: &Arc<T>,
+    ) {
+        let future_recv_socket = Self::recv_socket(udp_socket).fuse();
+        let future_recv_user_action =
+            Self::recv_user_action(user_action_rx).fuse();
+        let future_timeout = Self::timeout(timer, true).fuse();
 
         pin_mut!(future_recv_socket, future_recv_user_action, future_timeout);
         loop {
             select! {
                 segment = future_recv_socket => {
-                    future_recv_socket.set(Self::recv_socket(&self.udp_socket).fuse());
+                    future_recv_socket.set(Self::recv_socket(udp_socket).fuse());
                     if !self.handle_received_segment(segment).await {
                         return;
                     }
                 },
 
                 user_action = future_recv_user_action => {
-                    future_recv_user_action.set(Self::recv_user_action(&self.user_action_rx).fuse());
+                    future_recv_user_action.set(Self::recv_user_action(user_action_rx).fuse());
                     if !self.handle_received_user_action(user_action).await {
                         return;
                     }
-                    
+
                 },
 
                 _ = future_timeout => {
-                    future_timeout.set(Self::timeout(&self.timer, false).fuse());
+                    future_timeout.set(Self::timeout(timer, false).fuse());
 
                     self.handle_retransmit().await;
                 }
@@ -468,10 +470,10 @@ impl<T: Timer> ConnectedLoop<T> {
 
             // TODO: Make sure all combinations are tested
             if buffer_is_empty && self.timer_running {
-                future_timeout.set(Self::timeout(&self.timer, true).fuse());
+                future_timeout.set(Self::timeout(timer, true).fuse());
                 self.timer_running = false;
             } else if !buffer_is_empty && !self.timer_running {
-                future_timeout.set(Self::timeout(&self.timer, false).fuse());
+                future_timeout.set(Self::timeout(timer, false).fuse());
                 self.timer_running = true;
             }
         }
@@ -508,18 +510,12 @@ impl<T: Timer> ConnectedLoop<T> {
         } else if seq_num < self.connected_state.receive_next {
             // Ignore if too old
         } else {
-            self.add_to_recv_buffer(
-                segment,
-            );
+            self.add_to_recv_buffer(segment);
         }
 
-        let channel_closed = self
-            .deliver_data_to_application()
-            .await;
+        let channel_closed = self.deliver_data_to_application().await;
 
-        self.removed_acked_segments(
-            ack_num,
-        );
+        self.removed_acked_segments(ack_num);
 
         let ack_needed = len > 0 || kind == Fin;
         if ack_needed {
@@ -537,10 +533,7 @@ impl<T: Timer> ConnectedLoop<T> {
         }
     }
 
-    fn removed_acked_segments(
-        &mut self,
-        ack_num: u32,
-    ) {
+    fn removed_acked_segments(&mut self, ack_num: u32) {
         // println!("buffer before: {:?}", self.buffer);
         // println!("ack_num: {:?}", ack_num);
         while self.connected_state.send_buffer.len() > 0 {
@@ -571,18 +564,16 @@ impl<T: Timer> ConnectedLoop<T> {
         // println!("buffer after: {:?}", self.buffer);
     }
 
-    fn add_to_recv_buffer(
-        &mut self,
-        segment: Segment,
-    ) {
-        self.connected_state.recv_buffer.insert(segment.seq_num(), segment);
+    fn add_to_recv_buffer(&mut self, segment: Segment) {
+        self.connected_state
+            .recv_buffer
+            .insert(segment.seq_num(), segment);
         if self.connected_state.recv_buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
             self.connected_state.recv_buffer.pop_last();
         }
     }
 
-    async fn deliver_data_to_application(&mut self,
-    ) -> bool {
+    async fn deliver_data_to_application(&mut self) -> bool {
         loop {
             if let Some((seq_num, first_segment)) =
                 self.connected_state.recv_buffer.pop_first()
@@ -628,9 +619,7 @@ impl<T: Timer> ConnectedLoop<T> {
         }
     }
 
-    async fn send_ack(
-        &self,
-    ) {
+    async fn send_ack(&self) {
         let ack = Segment::new_empty(
             Ack,
             self.connected_state.send_next,
@@ -643,10 +632,8 @@ impl<T: Timer> ConnectedLoop<T> {
         user_action_rx: &Receiver<UserAction>,
     ) -> Option<UserAction> {
         match user_action_rx.recv().await {
-            Ok(user_action) => {
-                Some(user_action)
-            }
-            Err(_) => None
+            Ok(user_action) => Some(user_action),
+            Err(_) => None,
         }
     }
 
@@ -695,15 +682,12 @@ impl<T: Timer> ConnectedLoop<T> {
         return true;
     }
 
-    async fn send_segment(
-        &self,
-        segment: &Segment,
-    ) {
+    async fn send_segment(&self, segment: &Segment) {
         let encoded_seq = segment.encode();
         self.udp_socket.send(&encoded_seq).await.unwrap();
     }
 
-    async fn timeout(timer: &Arc<T>, forever: bool) {
+    async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
         if forever {
             timer.sleep(SleepDuration::Forever).await;
             panic!("Forever sleep returned");
@@ -719,10 +703,7 @@ impl<T: Timer> ConnectedLoop<T> {
             segment.set_ack_num(self.connected_state.receive_next);
             // TODO: Add a test for the line above
             // println!("Sendingg {:?}", segment);
-            self.send_segment(
-                &segment
-            ).await;
+            self.send_segment(&segment).await;
         }
-
     }
 }
