@@ -555,7 +555,7 @@ fn mf_simultaneous_read_and_write() {
     send_segment(&state, &seg_from_tc);
     state.timer.wait_for_call();
 
-    expect_read(&mut state, &[data_from_tc]);
+    read__expect_data(&mut state, &[data_from_tc]);
 
     // The uut retransmits its own data sent, but ack_num has been increased
     // to ack what it got from the tc.
@@ -874,7 +874,7 @@ fn af_out_of_order_segment() {
     let exp_ack = Segment::new_empty(Ack, state.send_next, state.receive_next);
     expect_segment(&state, &exp_ack);
 
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     send_segment(&state, &seg1);
 
@@ -888,7 +888,7 @@ fn af_out_of_order_segment() {
 
     state.receive_next += len1 + len2;
 
-    expect_read(&mut state, &[data1, data2]);
+    read__expect_data(&mut state, &[data1, data2]);
 
     shutdown(state);
 }
@@ -917,55 +917,55 @@ fn af_multiple_out_of_order_segments() {
     // |  2      |
     send_segment(&state, &segments[2]);
     expect_segment(&state, &ack_base);
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // |  23     |
     send_segment(&state, &segments[3]);
     expect_segment(&state, &ack_base);
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // |  23  6  |
     send_segment(&state, &segments[6]);
     expect_segment(&state, &ack_base);
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // |  23  6 8|
     send_segment(&state, &segments[8]);
     expect_segment(&state, &ack_base);
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // |0 23  6 8|
     send_segment(&state, &segments[0]);
     let ack0 =
         Segment::new_empty(Ack, state.send_next, state.receive_next + len * 1);
     expect_segment(&state, &ack0);
-    expect_read_data_of_segments(&mut state, &segments[0..=0]);
+    read__expect_data_of_segments(&mut state, &segments[0..=0]);
 
     // |0123  6 8|
     send_segment(&state, &segments[1]);
     let ack3 =
         Segment::new_empty(Ack, state.send_next, state.receive_next + len * 4);
     expect_segment(&state, &ack3);
-    expect_read_data_of_segments(&mut state, &segments[1..=3]);
+    read__expect_data_of_segments(&mut state, &segments[1..=3]);
 
     // |0123 56 8|
     send_segment(&state, &segments[5]);
     expect_segment(&state, &ack3);
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // |0123456 8|
     send_segment(&state, &segments[4]);
     let ack6 =
         Segment::new_empty(Ack, state.send_next, state.receive_next + len * 7);
     expect_segment(&state, &ack6);
-    expect_read_data_of_segments(&mut state, &segments[4..=6]);
+    read__expect_data_of_segments(&mut state, &segments[4..=6]);
 
     // |012345678|
     send_segment(&state, &segments[7]);
     let ack8 =
         Segment::new_empty(Ack, state.send_next, state.receive_next + len * 9);
     expect_segment(&state, &ack8);
-    expect_read_data_of_segments(&mut state, &segments[7..=8]);
+    read__expect_data_of_segments(&mut state, &segments[7..=8]);
 
     state.receive_next += len * 9;
 
@@ -1011,7 +1011,7 @@ fn af_out_of_order_receive_buffer_full() {
     expect_segment(&state, &ack_all_except_last);
 
     // Now all data except the last can be read
-    expect_read_data_of_segments(
+    read__expect_data_of_segments(
         &mut state,
         &segments[0..(num_segments - 1) as usize],
     );
@@ -1032,10 +1032,10 @@ fn af_too_small_read_buffer() {
     send_from_tc(&mut state, data);
 
     // Read into a small buffer, not everything fits
-    expect_read_with_buffer_len(&mut state, b"Some_", 5);
+    read_with_buffer_len__expect_data(&mut state, b"Some_", 5);
 
     // Read the rest
-    expect_read_with_buffer_len(&mut state, b"data", 10);
+    read_with_buffer_len__expect_data(&mut state, b"data", 10);
 
     uut_read(&mut state, b"more data in the end");
 
@@ -1186,7 +1186,7 @@ fn uut_connect(tc_socket: UdpSocket) -> State {
 // Perhaps also add a poll function to check if closing state
 fn shutdown(mut state: State) {
     // Check that the test case has read all data
-    expect_read_no_data(&mut state);
+    read__expect_no_data(&mut state);
 
     // And received all segments
     recv_check_no_data(&state.tc_socket);
@@ -1255,7 +1255,7 @@ fn tc_shutdown(state: &mut State) -> (Segment, Segment) {
     expect_segment(&state, &exp_ack_to_fin);
 
     // Since FIN has been received, 0 data is returned
-    expect_read_with_buffer_len(state, b"", 123);
+    read_with_buffer_len__expect_data(state, b"", 123);
     // TODO: The code below triggers RecvError. Use it for a future test.
     // let mut buf = [0; 123];
     // let buf_before = buf.clone();
@@ -1275,7 +1275,7 @@ fn uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     let segments = send_from_tc(state, data);
 
     // Check that the uut received the correct data
-    expect_read(state, &[data]);
+    read__expect_data(state, &[data]);
 
     segments
 }
@@ -1296,16 +1296,7 @@ fn send_from_tc(
     (send_seg, exp_ack)
 }
 
-fn expect_read_data_of_segments<'a, I>(state: &mut State, segments: I)
-where
-    I: IntoIterator<Item = &'a Segment>,
-{
-    let exp_datas: Vec<_> =
-        segments.into_iter().map(|seg| seg.data()).collect();
-    expect_read(state, &exp_datas);
-}
-
-fn expect_read(state: &mut State, exp_datas: &[&[u8]]) {
+fn read__expect_data(state: &mut State, exp_datas: &[&[u8]]) {
     let mut all_exp_data = Vec::new();
 
     for exp_data in exp_datas {
@@ -1316,11 +1307,19 @@ fn expect_read(state: &mut State, exp_datas: &[&[u8]]) {
     assert_ne!(all_exp_data, read_data);
     uut_stream(state).read_exact(&mut read_data).unwrap();
     assert_eq!(all_exp_data, read_data);
-    expect_read_no_data(state);
+    read__expect_no_data(state);
 }
 
-fn expect_read_with_buffer_len(
-    state: &mut State,
+fn read__expect_data_of_segments<'a, I>(state: &mut State, segments: I)
+where
+    I: IntoIterator<Item = &'a Segment>,
+{
+    let exp_datas: Vec<_> =
+        segments.into_iter().map(|seg| seg.data()).collect();
+    read__expect_data(state, &exp_datas);
+}
+
+fn read_with_buffer_len__expect_data(state: &mut State,
     exp_data: &[u8],
     buffer_len: usize,
 ) {
@@ -1334,7 +1333,7 @@ fn uut_stream(state: &mut State) -> &mut Stream {
     state.uut_stream.as_mut().unwrap()
 }
 
-fn expect_read_no_data(state: &mut State) {
+fn read__expect_no_data(state: &mut State) {
     let mut buf = [0; 1];
     let res = uut_stream(state).read(&mut buf);
     assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
