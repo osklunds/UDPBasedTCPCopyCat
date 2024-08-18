@@ -8,7 +8,6 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
-use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::str;
