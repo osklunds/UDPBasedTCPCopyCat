@@ -165,7 +165,7 @@ impl Stream {
                             temp_peer_addr,
                             peer_action_tx,
                             send_next,
-                            receive_next
+                            receive_next,
                         );
 
                         block_on(cl.connected_loop(
@@ -409,7 +409,7 @@ impl<'a> Connection<'a> {
         peer_addr: SocketAddr,
         peer_action_tx: Sender<PeerAction>,
         send_next: u32,
-        receive_next: u32
+        receive_next: u32,
     ) -> Self {
         Self {
             udp_socket,
@@ -442,18 +442,19 @@ impl<'a> Connection<'a> {
         loop {
             select! {
                 segment = future_recv_socket => {
-                    future_recv_socket.set(Self::recv_socket(udp_socket).fuse());
+                    future_recv_socket.set(Self::recv_socket(
+                        udp_socket).fuse());
                     if !self.handle_received_segment(segment).await {
                         return;
                     }
                 },
 
                 user_action = future_recv_user_action => {
-                    future_recv_user_action.set(Self::recv_user_action(user_action_rx).fuse());
+                    future_recv_user_action.set(Self::recv_user_action(
+                        user_action_rx).fuse());
                     if !self.handle_received_user_action(user_action).await {
                         return;
                     }
-
                 },
 
                 _ = future_timeout => {
@@ -518,9 +519,8 @@ impl<'a> Connection<'a> {
             self.send_ack().await;
         }
 
-        let shutdown_complete = self.send_buffer.is_empty()
-            && self.fin_sent
-            && self.fin_received;
+        let shutdown_complete =
+            self.send_buffer.is_empty() && self.fin_sent && self.fin_received;
 
         if shutdown_complete || channel_closed {
             false
@@ -561,9 +561,7 @@ impl<'a> Connection<'a> {
     }
 
     fn add_to_recv_buffer(&mut self, segment: Segment) {
-        self
-            .recv_buffer
-            .insert(segment.seq_num(), segment);
+        self.recv_buffer.insert(segment.seq_num(), segment);
         if self.recv_buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
             self.recv_buffer.pop_last();
         }
@@ -571,8 +569,7 @@ impl<'a> Connection<'a> {
 
     async fn deliver_data_to_application(&mut self) -> bool {
         loop {
-            if let Some((seq_num, first_segment)) =
-                self.recv_buffer.pop_first()
+            if let Some((seq_num, first_segment)) = self.recv_buffer.pop_first()
             {
                 assert_eq!(seq_num, first_segment.seq_num());
                 let len = first_segment.data().len() as u32;
@@ -604,9 +601,7 @@ impl<'a> Connection<'a> {
                         }
                     }
                 } else {
-                    self
-                        .recv_buffer
-                        .insert(seq_num, first_segment);
+                    self.recv_buffer.insert(seq_num, first_segment);
                     return false;
                 }
             } else {
@@ -616,11 +611,7 @@ impl<'a> Connection<'a> {
     }
 
     async fn send_ack(&self) {
-        let ack = Segment::new_empty(
-            Ack,
-            self.send_next,
-            self.receive_next,
-        );
+        let ack = Segment::new_empty(Ack, self.send_next, self.receive_next);
         self.send_segment(&ack).await;
     }
 
@@ -639,11 +630,8 @@ impl<'a> Connection<'a> {
     ) -> bool {
         match user_action {
             Some(UserAction::Shutdown) => {
-                let seg = Segment::new_empty(
-                    Fin,
-                    self.send_next,
-                    self.receive_next,
-                );
+                let seg =
+                    Segment::new_empty(Fin, self.send_next, self.receive_next);
 
                 self.send_segment(&seg).await;
 
