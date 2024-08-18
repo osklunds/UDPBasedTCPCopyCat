@@ -424,8 +424,7 @@ async fn connected_loop<T: Timer>(
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let future_recv_user_action_rx =
-        recv_user_action_rx(recv_user_action_rx_state).fuse();
+    let future_recv_user_action_rx = recv_user_action_rx(recv_user_action_rx_state).fuse();
     let future_timeout = timeout(&timer, true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
     // if the timeout future so be cleared or not. recv_user_action_rx returns
@@ -442,7 +441,7 @@ async fn connected_loop<T: Timer>(
     loop {
         select! {
             new_recv_socket_state = future_recv_socket => {
-                if let RecvSocketResult::Continue(new_recv_socket_state, _restart_timer) = new_recv_socket_state {
+                if let Some(new_recv_socket_state) = new_recv_socket_state {
                     let locked_connected_state = new_recv_socket_state.connected_state.lock().await;
                     let buffer_is_empty = locked_connected_state.send_buffer.is_empty();
                     drop(locked_connected_state);
@@ -511,18 +510,13 @@ async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
     }
 }
 
-enum RecvSocketResult<'a> {
-    Continue(RecvSocketState<'a>, bool),
-    Exit,
-}
-
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
     peer_action_tx: Sender<PeerAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
+async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
     let peer_addr = state.udp_socket.peer_addr().unwrap();
     let segment = recv_segment(state.udp_socket, peer_addr).await;
 
@@ -567,13 +561,12 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
         && locked_connected_state.fin_sent
         && locked_connected_state.fin_received
     {
-        RecvSocketResult::Exit
+        None
     } else if should_continue {
         drop(locked_connected_state);
-        let restart_timer = false; // TODO: Might never be true
-        RecvSocketResult::Continue(state, restart_timer)
+        Some(state)
     } else {
-        RecvSocketResult::Exit
+        None
     }
 }
 
