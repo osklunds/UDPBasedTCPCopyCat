@@ -254,6 +254,21 @@ fn mf_shutdown_uut_before_tc__read_after_shutdown() {
 }
 
 #[test]
+fn mf_shutdown_uut_before_tc__write_after_shutdown_fails() {
+    let mut state = setup_connected_uut_client();
+
+    uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
+
+    // Since FIN has been sent, write fails
+    let write_result = uut_stream(&mut state).write(b"some data");
+    assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
+
+    tc_shutdown(&mut state);
+
+    wait_shutdown_complete(state);
+}
+
+#[test]
 fn mf_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
 
@@ -1219,11 +1234,6 @@ fn uut_shutdown_with_tc_ack(state: &mut State, tc_still_connected: bool) {
 fn uut_shutdown(state: &mut State) -> Segment {
     // Shutdown from the uut
     uut_stream(state).shutdown();
-
-    // TODO: Put in separate test
-    // Since FIN has been sent, write fails
-    let write_result = uut_stream(state).write(b"some data");
-    assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
 
     // Recv FIN from the uut
     let exp_fin = Segment::new_empty(Fin, state.send_next, state.receive_next);
