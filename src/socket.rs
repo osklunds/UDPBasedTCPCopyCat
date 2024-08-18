@@ -547,7 +547,7 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
         add_to_recv_buffer(&mut locked_connected_state.recv_buffer, segment);
     }
 
-    let should_continue =
+    let channel_closed =
         deliver_data_to_application(&state, &mut locked_connected_state).await;
 
     removed_acked_segments(ack_num, &mut locked_connected_state.send_buffer);
@@ -557,16 +557,15 @@ async fn recv_socket(state: RecvSocketState<'_>) -> Option<RecvSocketState> {
         send_ack(&state, &mut locked_connected_state, peer_addr).await;
     }
 
-    if locked_connected_state.send_buffer.is_empty()
+    let shutdown_complete = locked_connected_state.send_buffer.is_empty()
         && locked_connected_state.fin_sent
-        && locked_connected_state.fin_received
-    {
+        && locked_connected_state.fin_received;
+
+    if shutdown_complete || channel_closed {
         None
-    } else if should_continue {
+    } else {
         drop(locked_connected_state);
         Some(state)
-    } else {
-        None
     }
 }
 
@@ -628,7 +627,7 @@ async fn deliver_data_to_application(
 
                     match state.peer_action_tx.send(PeerAction::EOF).await {
                         Ok(()) => (),
-                        Err(_) => return false,
+                        Err(_) => return true,
                     }
                 } else {
                     assert!(len > 0);
@@ -642,17 +641,17 @@ async fn deliver_data_to_application(
                         .await
                     {
                         Ok(()) => (),
-                        Err(_) => return false,
+                        Err(_) => return true,
                     }
                 }
             } else {
                 locked_connected_state
                     .recv_buffer
                     .insert(seq_num, first_segment);
-                return true;
+                return false;
             }
         } else {
-            return true;
+            return false;
         }
     }
 }
