@@ -160,7 +160,7 @@ impl Stream {
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        let mut cl = Connection::new(
+                        let mut connection = Connection::new(
                             &udp_socket,
                             temp_peer_addr,
                             peer_action_tx,
@@ -168,7 +168,7 @@ impl Stream {
                             receive_next,
                         );
 
-                        block_on(cl.connected_loop(
+                        block_on(connection.connected_loop(
                             &udp_socket,
                             &user_action_rx,
                             &timer,
