@@ -394,7 +394,6 @@ struct Connection<'a> {
 
     peer_action_tx: Sender<PeerAction>,
 
-    // TODO: remove timer_running, equal to if send_buffer not empty
     timer_running: bool,
     send_next: u32,
     receive_next: u32,
