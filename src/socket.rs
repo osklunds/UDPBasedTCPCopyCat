@@ -431,22 +431,19 @@ async fn connected_loop<T: Timer>(
     // TODO: Maybe move to connected state. Maybe it can be cleaned up
     // in some other better way.
     let mut timer_running = false;
-    pin_mut!(
-        future_recv_socket,
-        future_recv_user_action,
-        future_timeout
-    );
+    pin_mut!(future_recv_socket, future_recv_user_action, future_timeout);
     loop {
         select! {
             recv_socket_state = future_recv_socket => {
                 if let Some(recv_socket_state) = recv_socket_state {
-                    let locked_connected_state = recv_socket_state.connected_state.lock().await;
-                    let buffer_is_empty = locked_connected_state.send_buffer.is_empty();
+                    let locked_connected_state =
+                        recv_socket_state.connected_state.lock().await;
+                    let buffer_is_empty =
+                        locked_connected_state.send_buffer.is_empty();
                     drop(locked_connected_state);
 
-                    let new_future_recv_socket =
-                        recv_socket(recv_socket_state).fuse();
-                    future_recv_socket.set(new_future_recv_socket);
+                    future_recv_socket.set(recv_socket(
+                        recv_socket_state).fuse());
 
                     if buffer_is_empty && timer_running {
                         // TODO: Remove/cancel instead
