@@ -71,10 +71,6 @@ use crate::segment::Segment;
 // - af: FIN is sent, but the segment before was lost. I.e. out of order with
 //       FIN
 
-////////////////////////////////////////////////////////////////////////////////
-// Main flow test cases
-////////////////////////////////////////////////////////////////////////////////
-
 // All test cases manage sequence numbers semi-automatically. So verify them
 // explicitely here.
 #[test]
@@ -222,10 +218,18 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.wait_shutdown_complete();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+// Connect test cases
+////////////////////////////////////////////////////////////////////////////////
+
 #[test]
 fn mf_connect() {
     setup_connected_uut_client();
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Shutdown/close test cases
+////////////////////////////////////////////////////////////////////////////////
 
 #[test]
 fn mf_shutdown_uut_before_tc() {
@@ -328,6 +332,128 @@ fn mf_close() {
     state.uut_stream.take().unwrap().close();
     test_end_check(&mut state);
 }
+
+#[test]
+fn af_uut_retransmits_fin() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    uut_write_with_tc_ack(&mut state, b"some data");
+
+    // Send FIN from uut
+    state.timer.expect_start();
+    let exp_fin = uut_shutdown(&mut state);
+    state.timer.wait_for_call();
+
+    // tc pretends it didn't get the FIN by not sending an ACK. Instead,
+    // the timeout expires
+    state.timer.re_expect_trigger_wait();
+
+    expect_segment(&state, &exp_fin);
+
+    state.timer.expect_stop();
+    let ack = Segment::new_empty(Ack, state.receive_next, state.send_next);
+    send_segment(&state, &ack);
+    state.timer.wait_for_call();
+
+    tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn af_uut_retransmits_data_and_fin() {
+    let mut state = setup_connected_uut_client();
+
+    // Send some data successfully. This is to check that this data
+    // isn't retransmitted
+    uut_write_with_tc_ack(&mut state, b"some initial data");
+
+    let initial_send_next = state.send_next;
+
+    // Send data from uut
+    state.timer.expect_start();
+    let (len, recv_data_seg) = uut_write(&mut state, b"some data");
+    state.timer.wait_for_call();
+
+    // Send FIN from uut
+    let exp_fin = uut_shutdown(&mut state);
+
+    // tc pretends it didn't get the data or FIN, so the timer expires
+    state.timer.re_expect_trigger_wait();
+
+    expect_segment(&state, &recv_data_seg);
+    expect_segment(&state, &exp_fin);
+
+    let data_seg_ack =
+        Segment::new_empty(Ack, state.receive_next, initial_send_next + len);
+    let fin_ack = Segment::new_empty(
+        Ack,
+        state.receive_next,
+        initial_send_next + len + 1,
+    );
+
+    // Timer restarted because FIN is still not acked
+    state.timer.expect_start();
+    send_segment(&state, &data_seg_ack);
+    state.timer.wait_for_call();
+
+    state.timer.expect_stop();
+    send_segment(&state, &fin_ack);
+    state.timer.wait_for_call();
+
+    tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn af_tc_retransmits_fin() {
+    let mut state = setup_connected_uut_client();
+
+    uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+
+    // Send FIN
+    let (sent_fin, received_ack) = tc_shutdown(&mut state);
+
+    // Re-transmit the FIN and get the same ack
+    send_segment(&mut state, &sent_fin);
+    expect_segment(&state, &received_ack);
+
+    uut_write_with_tc_ack(&mut state, b"some other data to write");
+
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+#[test]
+fn af_tc_retransmits_data_and_fin() {
+    let mut state = setup_connected_uut_client();
+
+    uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+
+    // Send some data and a FIN
+    let (sent_data_seg, _received_data_ack) =
+        uut_read(&mut state, b"some data to read");
+    let (sent_fin, received_fin_ack) = tc_shutdown(&mut state);
+
+    // Re-transmit the data and FIN
+    send_segment(&mut state, &sent_data_seg);
+    expect_segment(&state, &received_fin_ack);
+    send_segment(&mut state, &sent_fin);
+    expect_segment(&state, &received_fin_ack);
+
+    uut_write_with_tc_ack(&mut state, b"some other data to write");
+
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
+    wait_shutdown_complete(state);
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+// Read/write test cases
+////////////////////////////////////////////////////////////////////////////////
 
 #[test]
 fn mf_client_read_once() {
@@ -450,10 +576,6 @@ fn mf_simultaneous_read_and_write() {
     state.receive_next += data_from_tc_len;
     shutdown(state);
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// Alternative flow test cases
-////////////////////////////////////////////////////////////////////////////////
 
 // TODO: Idea: when all test cases need a state parameter anyway, try
 // to chain them together, running one scenario after the other
@@ -596,79 +718,6 @@ fn af_client_retransmits_data_due_to_old_ack() {
     state.timer.wait_for_call();
 
     shutdown(state);
-}
-
-#[test]
-fn af_uut_retransmits_fin() {
-    let mut state = setup_connected_uut_client();
-
-    // Send some data successfully. This is to check that this data
-    // isn't retransmitted
-    uut_write_with_tc_ack(&mut state, b"some data");
-
-    // Send FIN from uut
-    state.timer.expect_start();
-    let exp_fin = uut_shutdown(&mut state);
-    state.timer.wait_for_call();
-
-    // tc pretends it didn't get the FIN by not sending an ACK. Instead,
-    // the timeout expires
-    state.timer.re_expect_trigger_wait();
-
-    expect_segment(&state, &exp_fin);
-
-    state.timer.expect_stop();
-    let ack = Segment::new_empty(Ack, state.receive_next, state.send_next);
-    send_segment(&state, &ack);
-    state.timer.wait_for_call();
-
-    tc_shutdown(&mut state);
-    wait_shutdown_complete(state);
-}
-
-#[test]
-fn af_uut_retransmits_data_and_fin() {
-    let mut state = setup_connected_uut_client();
-
-    // Send some data successfully. This is to check that this data
-    // isn't retransmitted
-    uut_write_with_tc_ack(&mut state, b"some initial data");
-
-    let initial_send_next = state.send_next;
-
-    // Send data from uut
-    state.timer.expect_start();
-    let (len, recv_data_seg) = uut_write(&mut state, b"some data");
-    state.timer.wait_for_call();
-
-    // Send FIN from uut
-    let exp_fin = uut_shutdown(&mut state);
-
-    // tc pretends it didn't get the data or FIN, so the timer expires
-    state.timer.re_expect_trigger_wait();
-
-    expect_segment(&state, &recv_data_seg);
-    expect_segment(&state, &exp_fin);
-
-    let data_seg_ack =
-        Segment::new_empty(Ack, state.receive_next, initial_send_next + len);
-    let fin_ack = Segment::new_empty(
-        Ack,
-        state.receive_next,
-        initial_send_next + len + 1,
-    );
-
-    // Timer restarted because FIN is still not acked
-    state.timer.expect_start();
-    send_segment(&state, &data_seg_ack);
-    state.timer.wait_for_call();
-
-    state.timer.expect_stop();
-    send_segment(&state, &fin_ack);
-    state.timer.wait_for_call();
-
-    tc_shutdown(&mut state);
-    wait_shutdown_complete(state);
 }
 
 #[test]
@@ -1031,50 +1080,6 @@ fn af_tc_retransmits_multiple_data_segments() {
     uut_write_with_tc_ack(&mut state, b"some data to write");
 
     shutdown(state);
-}
-
-#[test]
-fn af_tc_retransmits_fin() {
-    let mut state = setup_connected_uut_client();
-
-    uut_read(&mut state, b"some data");
-    uut_write_with_tc_ack(&mut state, b"some data to write");
-
-    // Send FIN
-    let (sent_fin, received_ack) = tc_shutdown(&mut state);
-
-    // Re-transmit the FIN and get the same ack
-    send_segment(&mut state, &sent_fin);
-    expect_segment(&state, &received_ack);
-
-    uut_write_with_tc_ack(&mut state, b"some other data to write");
-
-    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
-    wait_shutdown_complete(state);
-}
-
-#[test]
-fn af_tc_retransmits_data_and_fin() {
-    let mut state = setup_connected_uut_client();
-
-    uut_read(&mut state, b"some data");
-    uut_write_with_tc_ack(&mut state, b"some data to write");
-
-    // Send some data and a FIN
-    let (sent_data_seg, _received_data_ack) =
-        uut_read(&mut state, b"some data to read");
-    let (sent_fin, received_fin_ack) = tc_shutdown(&mut state);
-
-    // Re-transmit the data and FIN
-    send_segment(&mut state, &sent_data_seg);
-    expect_segment(&state, &received_fin_ack);
-    send_segment(&mut state, &sent_fin);
-    expect_segment(&state, &received_fin_ack);
-
-    uut_write_with_tc_ack(&mut state, b"some other data to write");
-
-    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
-    wait_shutdown_complete(state);
 }
 
 #[test]
