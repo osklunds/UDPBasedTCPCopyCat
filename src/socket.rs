@@ -417,26 +417,23 @@ async fn connected_loop<T: Timer>(
         peer_action_tx,
         connected_state: Arc::clone(&state),
     };
-    let recv_user_action_rx_state = RecvUserActionState {
+    let recv_user_action_state = RecvUserActionState {
         udp_socket: &udp_socket,
         user_action_rx,
         connected_state: Arc::clone(&state),
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let future_recv_user_action_rx =
-        recv_user_action_rx(recv_user_action_rx_state).fuse();
+    let future_recv_user_action =
+        recv_user_action(recv_user_action_state).fuse();
     let future_timeout = timeout(&timer, true).fuse();
-    // Need a separate timeout future. recv_socket returns a bool indicating
-    // if the timeout future so be cleared or not. recv_user_action_rx returns
-    // Option<Future> which replaces the old timeout future.
 
     // TODO: Maybe move to connected state. Maybe it can be cleaned up
     // in some other better way.
     let mut timer_running = false;
     pin_mut!(
         future_recv_socket,
-        future_recv_user_action_rx,
+        future_recv_user_action,
         future_timeout
     );
     loop {
@@ -461,15 +458,12 @@ async fn connected_loop<T: Timer>(
                 }
             },
 
-            result = future_recv_user_action_rx => {
-                if let RecvUserActionResult::Continue(new_user_action_rx_state) = result {
-                    let new_future_recv_user_action_rx =
-                        recv_user_action_rx(new_user_action_rx_state).fuse();
-                    future_recv_user_action_rx.set(new_future_recv_user_action_rx);
+            recv_user_action_state = future_recv_user_action => {
+                if let Some(recv_user_action_state) = recv_user_action_state {
+                    future_recv_user_action.set(recv_user_action(
+                        recv_user_action_state).fuse());
 
-                    // let locked_connected_state = connected_state_in_arc.lock().await;
-                    // let buffer = &locked_connected_state.buffer;
-                    // assert_eq!(timer_running, buffer.len() > 0);
+                    // todo: why is this needed?
                     if !timer_running {
                         future_timeout.set(timeout(&timer, false).fuse());
                         timer_running = true;
@@ -670,20 +664,15 @@ async fn send_ack(
     send_segment(state.udp_socket, peer_addr, &ack).await;
 }
 
-enum RecvUserActionResult<'a> {
-    Continue(RecvUserActionState<'a>),
-    Exit,
-}
-
 struct RecvUserActionState<'a> {
     udp_socket: &'a UdpSocket,
     user_action_rx: Receiver<UserAction>,
     connected_state: Arc<Mutex<ConnectedState>>,
 }
 
-async fn recv_user_action_rx(
+async fn recv_user_action(
     state: RecvUserActionState<'_>,
-) -> RecvUserActionResult {
+) -> Option<RecvUserActionState> {
     match state.user_action_rx.recv().await {
         Ok(user_action) => {
             let mut locked_connected_state = state.connected_state.lock().await;
@@ -721,15 +710,14 @@ async fn recv_user_action_rx(
                     }
                 }
                 UserAction::Close => {
-                    // TODO: Avoid using early return
-                    return RecvUserActionResult::Exit;
+                    return None;
                 }
             }
 
             drop(locked_connected_state);
-            RecvUserActionResult::Continue(state)
+            Some(state)
         }
-        Err(_) => RecvUserActionResult::Exit,
+        Err(_) => None,
     }
 }
 
