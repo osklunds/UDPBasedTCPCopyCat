@@ -424,7 +424,8 @@ async fn connected_loop<T: Timer>(
     };
 
     let future_recv_socket = recv_socket(recv_socket_state).fuse();
-    let future_recv_user_action_rx = recv_user_action_rx(recv_user_action_rx_state).fuse();
+    let future_recv_user_action_rx =
+        recv_user_action_rx(recv_user_action_rx_state).fuse();
     let future_timeout = timeout(&timer, true).fuse();
     // Need a separate timeout future. recv_socket returns a bool indicating
     // if the timeout future so be cleared or not. recv_user_action_rx returns
