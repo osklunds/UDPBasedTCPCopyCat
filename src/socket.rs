@@ -155,25 +155,17 @@ impl Stream {
                     Self::client_handshake(&udp_socket, init_seq_num).await
                 });
 
-                let state = ConnectedState {
-                    send_next,
-                    receive_next,
-                    fin_sent: false,
-                    fin_received: false,
-                    send_buffer: Vec::new(),
-                    recv_buffer: BTreeMap::new(),
-                };
-
                 let temp_peer_addr = udp_socket.peer_addr().unwrap();
 
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        let mut cl = ConnectedLoop::new(
-                            state,
+                        let mut cl = Connection::new(
                             &udp_socket,
                             temp_peer_addr,
                             peer_action_tx,
+                            send_next,
+                            receive_next
                         );
 
                         block_on(cl.connected_loop(
@@ -396,8 +388,14 @@ impl ServerStream {
     }
 }
 
-// TODO: Merge with ConnectedLoop
-struct ConnectedState {
+struct Connection<'a> {
+    udp_socket: &'a UdpSocket,
+    peer_addr: SocketAddr,
+
+    peer_action_tx: Sender<PeerAction>,
+
+    // TODO: remove timer_running, equal to if send_buffer not empty
+    timer_running: bool,
     send_next: u32,
     receive_next: u32,
     fin_sent: bool,
@@ -406,28 +404,27 @@ struct ConnectedState {
     recv_buffer: BTreeMap<u32, Segment>,
 }
 
-// TODO: Rename to Connection
-struct ConnectedLoop<'a> {
-    connected_state: ConnectedState,
-    udp_socket: &'a UdpSocket,
-    peer_addr: SocketAddr,
-    peer_action_tx: Sender<PeerAction>,
-    timer_running: bool,
-}
-
-impl<'a> ConnectedLoop<'a> {
+impl<'a> Connection<'a> {
     pub fn new(
-        connected_state: ConnectedState,
         udp_socket: &'a UdpSocket,
         peer_addr: SocketAddr,
         peer_action_tx: Sender<PeerAction>,
+        send_next: u32,
+        receive_next: u32
     ) -> Self {
         Self {
-            connected_state,
             udp_socket,
             peer_addr,
+
             peer_action_tx,
+
             timer_running: false,
+            send_next,
+            receive_next,
+            fin_sent: false,
+            fin_received: false,
+            send_buffer: Vec::new(),
+            recv_buffer: BTreeMap::new(),
         }
     }
 
@@ -466,7 +463,7 @@ impl<'a> ConnectedLoop<'a> {
                     self.handle_retransmit().await;
                 }
             };
-            let buffer_is_empty = self.connected_state.send_buffer.is_empty();
+            let buffer_is_empty = self.send_buffer.is_empty();
 
             // TODO: Make sure all combinations are tested
             if buffer_is_empty && self.timer_running {
@@ -495,19 +492,19 @@ impl<'a> ConnectedLoop<'a> {
 
         // TODO: Reject invalid segments instead
         // The segment shouldn't ack something not sent
-        assert!(self.connected_state.send_next >= segment.ack_num());
+        assert!(self.send_next >= segment.ack_num());
 
-        if self.connected_state.fin_received {
+        if self.fin_received {
             // If FIN has been received, the peer shouldn't send anything
             // new
-            assert!(self.connected_state.receive_next >= seq_num);
+            assert!(self.receive_next >= seq_num);
         }
 
         assert!(kind == Fin || kind == Ack);
         if kind == Ack && len == 0 {
             // Do nothing for a pure ACK
             // TODO: Test off by one
-        } else if seq_num < self.connected_state.receive_next {
+        } else if seq_num < self.receive_next {
             // Ignore if too old
         } else {
             self.add_to_recv_buffer(segment);
@@ -522,9 +519,9 @@ impl<'a> ConnectedLoop<'a> {
             self.send_ack().await;
         }
 
-        let shutdown_complete = self.connected_state.send_buffer.is_empty()
-            && self.connected_state.fin_sent
-            && self.connected_state.fin_received;
+        let shutdown_complete = self.send_buffer.is_empty()
+            && self.fin_sent
+            && self.fin_received;
 
         if shutdown_complete || channel_closed {
             false
@@ -536,8 +533,8 @@ impl<'a> ConnectedLoop<'a> {
     fn removed_acked_segments(&mut self, ack_num: u32) {
         // println!("buffer before: {:?}", self.buffer);
         // println!("ack_num: {:?}", ack_num);
-        while self.connected_state.send_buffer.len() > 0 {
-            let first_unacked_segment = &self.connected_state.send_buffer[0];
+        while self.send_buffer.len() > 0 {
+            let first_unacked_segment = &self.send_buffer[0];
             let virtual_len = match first_unacked_segment.kind() {
                 Ack => first_unacked_segment.data().len(),
                 Fin => 1,
@@ -556,7 +553,7 @@ impl<'a> ConnectedLoop<'a> {
             // is 5 (=3+2), which matches the meaning of ack_num=5 "the next byte I
             // expect from you is number 5".
             if ack_num >= first_unacked_segment.seq_num() + virtual_len as u32 {
-                self.connected_state.send_buffer.remove(0);
+                self.send_buffer.remove(0);
             } else {
                 break;
             }
@@ -565,28 +562,28 @@ impl<'a> ConnectedLoop<'a> {
     }
 
     fn add_to_recv_buffer(&mut self, segment: Segment) {
-        self.connected_state
+        self
             .recv_buffer
             .insert(segment.seq_num(), segment);
-        if self.connected_state.recv_buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
-            self.connected_state.recv_buffer.pop_last();
+        if self.recv_buffer.len() > MAXIMUM_RECV_BUFFER_SIZE {
+            self.recv_buffer.pop_last();
         }
     }
 
     async fn deliver_data_to_application(&mut self) -> bool {
         loop {
             if let Some((seq_num, first_segment)) =
-                self.connected_state.recv_buffer.pop_first()
+                self.recv_buffer.pop_first()
             {
                 assert_eq!(seq_num, first_segment.seq_num());
                 let len = first_segment.data().len() as u32;
-                assert!(seq_num >= self.connected_state.receive_next);
-                if seq_num == self.connected_state.receive_next {
+                assert!(seq_num >= self.receive_next);
+                if seq_num == self.receive_next {
                     if first_segment.kind() == Fin {
                         assert!(len == 0);
-                        assert!(!self.connected_state.fin_received);
-                        self.connected_state.fin_received = true;
-                        self.connected_state.receive_next += 1;
+                        assert!(!self.fin_received);
+                        self.fin_received = true;
+                        self.receive_next += 1;
 
                         match self.peer_action_tx.send(PeerAction::EOF).await {
                             Ok(()) => (),
@@ -596,7 +593,7 @@ impl<'a> ConnectedLoop<'a> {
                         assert!(len > 0);
                         assert!(first_segment.kind() == Ack);
 
-                        self.connected_state.receive_next += len;
+                        self.receive_next += len;
                         let data = first_segment.to_data();
                         match self
                             .peer_action_tx
@@ -608,7 +605,7 @@ impl<'a> ConnectedLoop<'a> {
                         }
                     }
                 } else {
-                    self.connected_state
+                    self
                         .recv_buffer
                         .insert(seq_num, first_segment);
                     return false;
@@ -622,8 +619,8 @@ impl<'a> ConnectedLoop<'a> {
     async fn send_ack(&self) {
         let ack = Segment::new_empty(
             Ack,
-            self.connected_state.send_next,
-            self.connected_state.receive_next,
+            self.send_next,
+            self.receive_next,
         );
         self.send_segment(&ack).await;
     }
@@ -645,30 +642,30 @@ impl<'a> ConnectedLoop<'a> {
             Some(UserAction::Shutdown) => {
                 let seg = Segment::new_empty(
                     Fin,
-                    self.connected_state.send_next,
-                    self.connected_state.receive_next,
+                    self.send_next,
+                    self.receive_next,
                 );
 
                 self.send_segment(&seg).await;
 
-                self.connected_state.send_next += 1;
-                self.connected_state.send_buffer.push(seg);
+                self.send_next += 1;
+                self.send_buffer.push(seg);
 
-                self.connected_state.fin_sent = true;
+                self.fin_sent = true;
             }
             Some(UserAction::SendData(data)) => {
                 for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
                     let seg = Segment::new(
                         Ack,
-                        self.connected_state.send_next,
-                        self.connected_state.receive_next,
+                        self.send_next,
+                        self.receive_next,
                         &chunk,
                     );
 
                     self.send_segment(&seg).await;
 
-                    self.connected_state.send_next += chunk.len() as u32;
-                    self.connected_state.send_buffer.push(seg);
+                    self.send_next += chunk.len() as u32;
+                    self.send_buffer.push(seg);
                 }
             }
             Some(UserAction::Close) => {
@@ -699,8 +696,8 @@ impl<'a> ConnectedLoop<'a> {
     }
 
     async fn handle_retransmit(&self) {
-        for segment in &self.connected_state.send_buffer {
-            segment.set_ack_num(self.connected_state.receive_next);
+        for segment in &self.send_buffer {
+            segment.set_ack_num(self.receive_next);
             // TODO: Add a test for the line above
             // println!("Sendingg {:?}", segment);
             self.send_segment(&segment).await;
