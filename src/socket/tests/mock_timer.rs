@@ -34,12 +34,16 @@ impl MockTimer {
         }
     }
 
-    pub fn expect_forever_sleep(&self) {
-        self.expect_call(SleepDuration::Forever);
+    // Sleeping the retransmission timer length is the same as "timer starting"
+    // because now the uut is waiting that time for some ACK.
+    pub fn expect_start(&self) {
+        self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
     }
 
-    pub fn expect_sleep(&self) {
-        self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
+    // Sleeping forever is the same as "timer stopping" because now the uut
+    // doesn't need the timer, isn't waiting for any ACK.
+    pub fn expect_stop(&self) {
+        self.expect_call(SleepDuration::Forever);
     }
 
     fn expect_call(&self, duration: SleepDuration) {
@@ -89,7 +93,7 @@ impl MockTimer {
     }
 
     pub fn re_expect_trigger_wait(&self) {
-        self.expect_sleep();
+        self.expect_start();
         self.trigger();
         self.wait_for_call();
     }
