@@ -489,17 +489,6 @@ async fn connected_loop<T: Timer>(
     }
 }
 
-async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
-    if forever {
-        timer.sleep(SleepDuration::Forever).await;
-        panic!("Forever sleep returned");
-    } else {
-        timer
-            .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
-            .await;
-    }
-}
-
 struct RecvSocketState<'a> {
     udp_socket: &'a UdpSocket,
     peer_action_tx: Sender<PeerAction>,
@@ -734,3 +723,15 @@ async fn send_segment(
     let encoded_seq = segment.encode();
     udp_socket.send(&encoded_seq).await.unwrap();
 }
+
+async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
+    if forever {
+        timer.sleep(SleepDuration::Forever).await;
+        panic!("Forever sleep returned");
+    } else {
+        timer
+            .sleep(SleepDuration::Finite(RETRANSMISSION_TIMER))
+            .await;
+    }
+}
+
