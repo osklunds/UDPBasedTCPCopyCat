@@ -234,7 +234,7 @@ fn mf_shutdown_tc_before_uut() {
     main_flow_uut_read(&mut state, b"some data to read");
 
     main_flow_tc_shutdown(&mut state);
-    main_flow_uut_shutdown_last(&mut state);
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -249,7 +249,7 @@ fn mf_shutdown_tc_before_uut_write_after_shutdown() {
 
     // tc side has sent FIN. But uut hasn't, so uut can still write
     main_flow_uut_write(&mut state, b"some data");
-    main_flow_uut_shutdown_last(&mut state);
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
 
     wait_shutdown_complete(state);
 }
@@ -263,7 +263,7 @@ fn mf_shutdown_uut_before_tc_read_after_shutdown() {
 
     // uut side has sent FIN. But tc hasn't, so tc can still write and uut can
     // read
-    main_flow_uut_shutdown(&mut state);
+    uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     main_flow_uut_read(&mut state, b"some data");
     main_flow_tc_shutdown(&mut state);
 
@@ -1036,7 +1036,7 @@ fn af_tc_retransmits_fin() {
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
-    main_flow_uut_shutdown_last(&mut state);
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -1060,7 +1060,7 @@ fn af_tc_retransmits_data_and_fin() {
 
     main_flow_uut_write(&mut state, b"some other data to write");
 
-    main_flow_uut_shutdown_last(&mut state);
+    uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -1178,39 +1178,40 @@ fn shutdown(mut state: State) {
     main_flow_uut_write(&mut state, b"final data to write");
 
     // Then do the shutdown
-    main_flow_uut_shutdown(&mut state);
+    uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     main_flow_tc_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
-fn main_flow_uut_shutdown(state: &mut State) {
-    main_flow_uut_shutdown_helper(
-        state,
-        |state| state.timer.expect_forever_sleep(),
-        |state| state.timer.wait_for_call(),
-    );
+#[allow(non_snake_case)]
+fn uut_shutdown_with_tc_ack__tc_still_connected(state: &mut State) {
+    uut_shutdown_with_tc_ack(state, true)
 }
 
-fn main_flow_uut_shutdown_last(state: &mut State) {
-    main_flow_uut_shutdown_helper(state, |_state| (), |_state| ());
+#[allow(non_snake_case)]
+fn uut_shutdown_with_tc_ack__tc_already_shutdown(state: &mut State) {
+    uut_shutdown_with_tc_ack(state, false)
 }
 
-// This helper is supposed to mirror main_flow_uut_write
-fn main_flow_uut_shutdown_helper(
-    state: &mut State,
-    expect_sleep: fn(&mut State),
-    wait_sleep: fn(&mut State),
-) {
+fn uut_shutdown_with_tc_ack(state: &mut State, tc_still_connected: bool) {
     state.timer.expect_sleep();
     uut_shutdown(state);
     state.timer.wait_for_call();
 
+    // If tc still connected, then uut sleeps forever once its FIN has been
+    // acked. If tc not connected, then the uut thread stops, thus no sleep.
+    if tc_still_connected {
+        state.timer.expect_forever_sleep();
+    }
+
     // tc sends ACK to the FIN
-    expect_sleep(state);
     let ack_to_fin =
         Segment::new_empty(Ack, state.receive_next, state.send_next);
     send_segment(&state, &ack_to_fin);
-    wait_sleep(state);
+
+    if tc_still_connected {
+        state.timer.wait_for_call();
+    }
 }
 
 // This helper is supposed to mirror uut_write
@@ -1218,6 +1219,7 @@ fn uut_shutdown(state: &mut State) -> Segment {
     // Shutdown from the uut
     uut_stream(state).shutdown();
 
+    // TODO: Put in separate test
     // Since FIN has been sent, write fails
     let write_result = uut_stream(state).write(b"some data");
     assert_eq!(write_result.unwrap_err().kind(), ErrorKind::NotConnected);
