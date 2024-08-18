@@ -231,8 +231,8 @@ fn mf_connect() {
 fn mf_shutdown_uut_before_tc() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     tc_shutdown(&mut state);
@@ -243,13 +243,13 @@ fn mf_shutdown_uut_before_tc() {
 fn mf_shutdown_uut_before_tc__read_after_shutdown() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     // uut side has sent FIN. But tc hasn't, so tc can still write and uut can
     // read
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
-    main_flow_uut_read(&mut state, b"some data");
+    uut_read(&mut state, b"some data");
     tc_shutdown(&mut state);
 
     wait_shutdown_complete(state);
@@ -259,8 +259,8 @@ fn mf_shutdown_uut_before_tc__read_after_shutdown() {
 fn mf_shutdown_tc_before_uut() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     tc_shutdown(&mut state);
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
@@ -271,13 +271,13 @@ fn mf_shutdown_tc_before_uut() {
 fn mf_shutdown_tc_before_uut__write_after_shutdown() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     tc_shutdown(&mut state);
 
     // tc side has sent FIN. But uut hasn't, so uut can still write
-    main_flow_uut_write(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data");
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
 
     wait_shutdown_complete(state);
@@ -287,8 +287,8 @@ fn mf_shutdown_tc_before_uut__write_after_shutdown() {
 fn mf_simultaneous_shutdown() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     // uut sends FIN
     state.timer.expect_start();
@@ -322,8 +322,8 @@ fn mf_simultaneous_shutdown() {
 fn mf_close() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data");
+    uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data");
 
     state.uut_stream.take().unwrap().close();
     test_end_check(&mut state);
@@ -333,7 +333,7 @@ fn mf_close() {
 fn mf_client_read_once() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"some data");
+    uut_read(&mut state, b"some data");
 
     shutdown(state);
 }
@@ -342,16 +342,16 @@ fn mf_client_read_once() {
 fn mf_client_read_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"first rweouinwrte");
-    main_flow_uut_read(&mut state, b"second hfuiasud");
-    main_flow_uut_read(&mut state, b"third uifdshufihsiughsyudfghkusfdf");
-    main_flow_uut_read(&mut state, b"fourth fuidshfadgaerge");
-    main_flow_uut_read(&mut state, b"fifth dhuifghuifdlfoiwejiow");
-    main_flow_uut_read(&mut state, b"sixth fdauykfudsfgs");
-    main_flow_uut_read(&mut state, b"seventh fsdhsdgfsd");
-    main_flow_uut_read(&mut state, b"eighth ijogifdgire");
-    main_flow_uut_read(&mut state, b"ninth ertwrw");
-    main_flow_uut_read(&mut state, b"tenth uhfsdghsu");
+    uut_read(&mut state, b"first rweouinwrte");
+    uut_read(&mut state, b"second hfuiasud");
+    uut_read(&mut state, b"third uifdshufihsiughsyudfghkusfdf");
+    uut_read(&mut state, b"fourth fuidshfadgaerge");
+    uut_read(&mut state, b"fifth dhuifghuifdlfoiwejiow");
+    uut_read(&mut state, b"sixth fdauykfudsfgs");
+    uut_read(&mut state, b"seventh fsdhsdgfsd");
+    uut_read(&mut state, b"eighth ijogifdgire");
+    uut_read(&mut state, b"ninth ertwrw");
+    uut_read(&mut state, b"tenth uhfsdghsu");
 
     shutdown(state);
 }
@@ -360,7 +360,7 @@ fn mf_client_read_multiple_times() {
 fn mf_client_write_once() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data");
 
     shutdown(state);
 }
@@ -369,16 +369,16 @@ fn mf_client_write_once() {
 fn mf_client_write_multiple_times() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"first agfs");
-    main_flow_uut_write(&mut state, b"second gfdhdgfh");
-    main_flow_uut_write(&mut state, b"third dfafsdfads");
-    main_flow_uut_write(&mut state, b"fourth dfafas");
-    main_flow_uut_write(&mut state, b"fifth dfasfasfsdaf");
-    main_flow_uut_write(&mut state, b"sixth thythrt");
-    main_flow_uut_write(&mut state, b"seventh fdsaref");
-    main_flow_uut_write(&mut state, b"eighth dagfsdrgrege");
-    main_flow_uut_write(&mut state, b"ninth asfaerger");
-    main_flow_uut_write(&mut state, b"tenth trehjk");
+    uut_write_with_tc_ack(&mut state, b"first agfs");
+    uut_write_with_tc_ack(&mut state, b"second gfdhdgfh");
+    uut_write_with_tc_ack(&mut state, b"third dfafsdfads");
+    uut_write_with_tc_ack(&mut state, b"fourth dfafas");
+    uut_write_with_tc_ack(&mut state, b"fifth dfasfasfsdaf");
+    uut_write_with_tc_ack(&mut state, b"sixth thythrt");
+    uut_write_with_tc_ack(&mut state, b"seventh fdsaref");
+    uut_write_with_tc_ack(&mut state, b"eighth dagfsdrgrege");
+    uut_write_with_tc_ack(&mut state, b"ninth asfaerger");
+    uut_write_with_tc_ack(&mut state, b"tenth trehjk");
 
     shutdown(state);
 }
@@ -387,13 +387,13 @@ fn mf_client_write_multiple_times() {
 fn mf_client_reads_and_writes() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"first");
-    main_flow_uut_write(&mut state, b"second");
-    main_flow_uut_write(&mut state, b"third");
-    main_flow_uut_write(&mut state, b"fourth");
-    main_flow_uut_read(&mut state, b"fifth");
-    main_flow_uut_read(&mut state, b"sixth");
-    main_flow_uut_write(&mut state, b"seventh");
+    uut_read(&mut state, b"first");
+    uut_write_with_tc_ack(&mut state, b"second");
+    uut_write_with_tc_ack(&mut state, b"third");
+    uut_write_with_tc_ack(&mut state, b"fourth");
+    uut_read(&mut state, b"fifth");
+    uut_read(&mut state, b"sixth");
+    uut_write_with_tc_ack(&mut state, b"seventh");
 
     shutdown(state);
 }
@@ -402,8 +402,8 @@ fn mf_client_reads_and_writes() {
 fn mf_simultaneous_read_and_write() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_write(&mut state, b"some data to write");
-    main_flow_uut_read(&mut state, b"some data to read");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data to read");
 
     // uut sends some data
     let data_from_uut = b"data";
@@ -463,7 +463,7 @@ fn af_uut_retransmits_data_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    main_flow_uut_write(&mut state, b"some initial data");
+    uut_write_with_tc_ack(&mut state, b"some initial data");
 
     let initial_send_next = state.send_next;
 
@@ -493,7 +493,7 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    main_flow_uut_write(&mut state, b"some initial data");
+    uut_write_with_tc_ack(&mut state, b"some initial data");
 
     let initial_send_next = state.send_next;
 
@@ -552,7 +552,7 @@ fn af_client_retransmits_data_due_to_old_ack() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    main_flow_uut_write(&mut state, b"some initial data");
+    uut_write_with_tc_ack(&mut state, b"some initial data");
 
     let initial_send_next = state.send_next;
 
@@ -604,7 +604,7 @@ fn af_uut_retransmits_fin() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    main_flow_uut_write(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data");
 
     // Send FIN from uut
     state.timer.expect_start();
@@ -632,7 +632,7 @@ fn af_uut_retransmits_data_and_fin() {
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
-    main_flow_uut_write(&mut state, b"some initial data");
+    uut_write_with_tc_ack(&mut state, b"some initial data");
 
     let initial_send_next = state.send_next;
 
@@ -800,7 +800,7 @@ fn af_same_segment_carries_data_and_acks() {
 
     // Then send some data from tc, without first sending a separate ACK
     state.timer.expect_stop();
-    main_flow_uut_read(&mut state, b"some other data");
+    uut_read(&mut state, b"some other data");
     state.timer.wait_for_call();
 
     shutdown(state);
@@ -976,11 +976,11 @@ fn af_out_of_order_receive_buffer_full() {
 fn af_too_small_read_buffer() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"some intial data");
+    uut_read(&mut state, b"some intial data");
 
     // Send some data
     let data = b"Some_data";
-    main_flow_send_from_tc(&mut state, data);
+    send_from_tc(&mut state, data);
 
     // Read into a small buffer, not everything fits
     expect_read_with_buffer_len(&mut state, b"Some_", 5);
@@ -988,7 +988,7 @@ fn af_too_small_read_buffer() {
     // Read the rest
     expect_read_with_buffer_len(&mut state, b"data", 10);
 
-    main_flow_uut_read(&mut state, b"more data in the end");
+    uut_read(&mut state, b"more data in the end");
 
     shutdown(state);
 }
@@ -999,14 +999,14 @@ fn af_tc_retransmits_data() {
 
     // Send some data
     let (sent_seg, received_ack) =
-        main_flow_uut_read(&mut state, b"some data to read");
+        uut_read(&mut state, b"some data to read");
 
     // Re-transmit the segment and get the same ack
     send_segment(&mut state, &sent_seg);
     expect_segment(&state, &received_ack);
 
-    main_flow_uut_read(&mut state, b"some other data");
-    main_flow_uut_write(&mut state, b"some data to write");
+    uut_read(&mut state, b"some other data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
 
     shutdown(state);
 }
@@ -1017,9 +1017,9 @@ fn af_tc_retransmits_multiple_data_segments() {
 
     // Send two data segments
     let (sent_seg1, _received_ack1) =
-        main_flow_uut_read(&mut state, b"some data to read");
+        uut_read(&mut state, b"some data to read");
     let (sent_seg2, received_ack2) =
-        main_flow_uut_read(&mut state, b"other data being read");
+        uut_read(&mut state, b"other data being read");
 
     // Note that it's always the latest ack being sent
     send_segment(&mut state, &sent_seg1);
@@ -1027,8 +1027,8 @@ fn af_tc_retransmits_multiple_data_segments() {
     send_segment(&mut state, &sent_seg2);
     expect_segment(&state, &received_ack2);
 
-    main_flow_uut_read(&mut state, b"some other data");
-    main_flow_uut_write(&mut state, b"some data to write");
+    uut_read(&mut state, b"some other data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
 
     shutdown(state);
 }
@@ -1037,8 +1037,8 @@ fn af_tc_retransmits_multiple_data_segments() {
 fn af_tc_retransmits_fin() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
 
     // Send FIN
     let (sent_fin, received_ack) = tc_shutdown(&mut state);
@@ -1047,7 +1047,7 @@ fn af_tc_retransmits_fin() {
     send_segment(&mut state, &sent_fin);
     expect_segment(&state, &received_ack);
 
-    main_flow_uut_write(&mut state, b"some other data to write");
+    uut_write_with_tc_ack(&mut state, b"some other data to write");
 
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
@@ -1057,12 +1057,12 @@ fn af_tc_retransmits_fin() {
 fn af_tc_retransmits_data_and_fin() {
     let mut state = setup_connected_uut_client();
 
-    main_flow_uut_read(&mut state, b"some data");
-    main_flow_uut_write(&mut state, b"some data to write");
+    uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"some data to write");
 
     // Send some data and a FIN
     let (sent_data_seg, _received_data_ack) =
-        main_flow_uut_read(&mut state, b"some data to read");
+        uut_read(&mut state, b"some data to read");
     let (sent_fin, received_fin_ack) = tc_shutdown(&mut state);
 
     // Re-transmit the data and FIN
@@ -1071,7 +1071,7 @@ fn af_tc_retransmits_data_and_fin() {
     send_segment(&mut state, &sent_fin);
     expect_segment(&state, &received_fin_ack);
 
-    main_flow_uut_write(&mut state, b"some other data to write");
+    uut_write_with_tc_ack(&mut state, b"some other data to write");
 
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
@@ -1082,9 +1082,9 @@ fn af_ack_does_not_cause_ack_to_be_sent() {
     let mut state = setup_connected_uut_client();
 
     let (sent_ack1, _received_data_seg1) =
-        main_flow_uut_write(&mut state, b"datadatadata");
+        uut_write_with_tc_ack(&mut state, b"datadatadata");
     let (sent_ack2, _received_data_seg2) =
-        main_flow_uut_write(&mut state, b"some other data to write");
+        uut_write_with_tc_ack(&mut state, b"some other data to write");
 
     send_segment(&state, &sent_ack1);
     recv_check_no_data(&state.tc_socket);
@@ -1092,8 +1092,8 @@ fn af_ack_does_not_cause_ack_to_be_sent() {
     send_segment(&state, &sent_ack2);
     recv_check_no_data(&state.tc_socket);
 
-    main_flow_uut_write(&mut state, b"other");
-    main_flow_uut_read(&mut state, b"some data");
+    uut_write_with_tc_ack(&mut state, b"other");
+    uut_read(&mut state, b"some data");
 
     shutdown(state);
 }
@@ -1187,8 +1187,8 @@ fn shutdown(mut state: State) {
     recv_check_no_data(&state.tc_socket);
 
     // Read and write some data to check that the uut is still working
-    main_flow_uut_read(&mut state, b"final data to read");
-    main_flow_uut_write(&mut state, b"final data to write");
+    uut_read(&mut state, b"final data to read");
+    uut_write_with_tc_ack(&mut state, b"final data to write");
 
     // Then do the shutdown
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
@@ -1271,8 +1271,8 @@ fn wait_shutdown_complete(mut state: State) {
     test_end_check(&mut state);
 }
 
-fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
-    let segments = main_flow_send_from_tc(state, data);
+fn uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
+    let segments = send_from_tc(state, data);
 
     // Check that the uut received the correct data
     expect_read(state, &[data]);
@@ -1280,7 +1280,7 @@ fn main_flow_uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     segments
 }
 
-fn main_flow_send_from_tc(
+fn send_from_tc(
     state: &mut State,
     data: &[u8],
 ) -> (Segment, Segment) {
@@ -1340,7 +1340,7 @@ fn expect_read_no_data(state: &mut State) {
     assert_eq!(ErrorKind::WouldBlock, res.unwrap_err().kind());
 }
 
-fn main_flow_uut_write(state: &mut State, data: &[u8]) -> (Segment, Segment) {
+fn uut_write_with_tc_ack(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Send from the uut
     state.timer.expect_start();
     let (_len, recv_data_seg) = uut_write(state, data);
