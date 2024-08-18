@@ -436,18 +436,8 @@ async fn connected_loop<T: Timer>(
         select! {
             recv_socket_state = future_recv_socket => {
                 if let Some(recv_socket_state) = recv_socket_state {
-                    let buffer_is_empty = 
-                        state.lock().await.send_buffer.is_empty();
-
-                    if buffer_is_empty && timer_running {
-                        // TODO: Remove/cancel instead
-                        future_timeout.set(timeout(&timer, true).fuse());
-                        timer_running = false;
-                    }
-
                     future_recv_socket.set(recv_socket(
                         recv_socket_state).fuse());
-
                 } else {
                     return;
                 }
@@ -457,12 +447,6 @@ async fn connected_loop<T: Timer>(
                 if let Some(recv_user_action_state) = recv_user_action_state {
                     future_recv_user_action.set(recv_user_action(
                         recv_user_action_state).fuse());
-
-                    // todo: why is this needed?
-                    if !timer_running {
-                        future_timeout.set(timeout(&timer, false).fuse());
-                        timer_running = true;
-                    }
                 } else {
                     return;
                 }
@@ -486,6 +470,16 @@ async fn connected_loop<T: Timer>(
                 future_timeout.set(timeout(&timer, false).fuse());
             }
         };
+        let buffer_is_empty = state.lock().await.send_buffer.is_empty();
+
+        // TODO: Make sure all combinations are tested
+        if buffer_is_empty && timer_running {
+            future_timeout.set(timeout(&timer, true).fuse());
+            timer_running = false;
+        } else if !buffer_is_empty && !timer_running {
+            future_timeout.set(timeout(&timer, false).fuse());
+            timer_running = true;
+        }
     }
 }
 
@@ -734,4 +728,3 @@ async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
             .await;
     }
 }
-
