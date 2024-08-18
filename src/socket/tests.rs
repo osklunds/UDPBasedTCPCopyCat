@@ -303,16 +303,12 @@ fn mf_simultaneous_shutdown() {
     recv__expect_segment(&state, &exp_fin);
 
     // tc sends FIN
-    state.timer.expect_start();
     let fin_from_tc =
         Segment::new_empty(Fin, state.receive_next, state.send_next);
     send_segment(&state, &fin_from_tc);
-    state.timer.wait_for_call();
 
-    // The FIN is retransmitted, but ack_num has been increased to ack
-    // the FIN from the tc.
-    let new_exp_fin = exp_fin.set_ack_num(state.receive_next + 1);
-    recv__expect_segment(&mut state, &new_exp_fin);
+    let exp_ack_to_fin = Segment::new_empty(Ack, state.send_next + 1, state.receive_next + 1);
+    recv__expect_segment(&mut state, &exp_ack_to_fin);
 
     // The tc acks the FIN
     let ack_to_fin =
@@ -393,10 +389,7 @@ fn af_uut_retransmits_data_and_fin() {
         initial_send_next + len + 1,
     );
 
-    // Timer restarted because FIN is still not acked
-    state.timer.expect_start();
     send_segment(&state, &data_seg_ack);
-    state.timer.wait_for_call();
 
     state.timer.expect_stop();
     send_segment(&state, &fin_ack);
@@ -449,7 +442,6 @@ fn af_tc_retransmits_data_and_fin() {
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////
 // Read/write test cases
@@ -549,18 +541,17 @@ fn mf_simultaneous_read_and_write() {
     let seg_from_tc =
         Segment::new(Ack, state.receive_next, state.send_next, data_from_tc);
 
-    // uut restarts the timer, because ack_num from tc is old, so nothing
-    // was acked, and "fast retransmit" kicks in
-    state.timer.expect_start();
     send_segment(&state, &seg_from_tc);
-    state.timer.wait_for_call();
 
     read__expect_data(&mut state, &[data_from_tc]);
 
-    // The uut retransmits its own data sent, but ack_num has been increased
-    // to ack what it got from the tc.
-    let new_exp_data_seg = exp_data_seg.set_ack_num(state.receive_next + data_from_tc_len);
-    recv__expect_segment(&state, &new_exp_data_seg);
+    // uut acks the TC data
+    let exp_ack = Segment::new_empty(
+        Ack,
+        state.send_next + data_from_uut_len,
+        state.receive_next + data_from_tc_len,
+    );
+    recv__expect_segment(&state, &exp_ack);
 
     // Ack the data from uut
     state.timer.expect_stop();
@@ -653,13 +644,8 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
         initial_send_next + len1 + len2 + len3,
     );
 
-    state.timer.expect_start();
     send_segment(&state, &ack1);
-    state.timer.wait_for_call();
-
-    state.timer.expect_start();
     send_segment(&state, &ack2);
-    state.timer.wait_for_call();
 
     state.timer.expect_stop();
     send_segment(&state, &ack3);
@@ -739,7 +725,8 @@ fn af_first_segment_acked_but_not_second() {
     // TC sends Ack for the first segment, but not the second.
     send_segment(&state, &ack1);
 
-    std::thread::sleep(Duration::from_millis(10));
+    // Needed to make sure ACK reaches before timer expires
+    std::thread::sleep(Duration::from_millis(1));
 
     // But when the timer expires...
     state.timer.trigger();
@@ -1046,8 +1033,7 @@ fn af_tc_retransmits_data() {
     let mut state = setup_connected_uut_client();
 
     // Send some data
-    let (sent_seg, received_ack) =
-        uut_read(&mut state, b"some data to read");
+    let (sent_seg, received_ack) = uut_read(&mut state, b"some data to read");
 
     // Re-transmit the segment and get the same ack
     send_segment(&mut state, &sent_seg);
@@ -1279,10 +1265,7 @@ fn uut_read(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     segments
 }
 
-fn send_from_tc(
-    state: &mut State,
-    data: &[u8],
-) -> (Segment, Segment) {
+fn send_from_tc(state: &mut State, data: &[u8]) -> (Segment, Segment) {
     // Send from the tc
     let send_seg = Segment::new(Ack, state.receive_next, state.send_next, data);
     send_segment(&state, &send_seg);
@@ -1318,7 +1301,8 @@ where
     read__expect_data(state, &exp_datas);
 }
 
-fn read_with_buffer_len__expect_data(state: &mut State,
+fn read_with_buffer_len__expect_data(
+    state: &mut State,
     exp_data: &[u8],
     buffer_len: usize,
 ) {

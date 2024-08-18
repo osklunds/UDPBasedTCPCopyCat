@@ -146,7 +146,7 @@ impl fmt::Debug for Segment {
         } else {
             &format!("{:?}", &self.data)
         };
-        
+
         f.debug_struct("Segment")
             .field("kind", &self.kind)
             .field("seq_num", &self.seq_num)

@@ -578,8 +578,8 @@ async fn recv_socket(state: RecvSocketState<'_>) -> RecvSocketResult {
 }
 
 fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
-    println!("buffer before: {:?}", buffer);
-    println!("ack_num: {:?}", ack_num);
+    // println!("buffer before: {:?}", buffer);
+    // println!("ack_num: {:?}", ack_num);
     while buffer.len() > 0 {
         let first_unacked_segment = &buffer[0];
         let virtual_len = match first_unacked_segment.kind() {
@@ -605,7 +605,7 @@ fn removed_acked_segments(ack_num: u32, buffer: &mut Vec<Segment>) {
             break;
         }
     }
-    println!("buffer after: {:?}", buffer);
+    // println!("buffer after: {:?}", buffer);
 }
 
 fn add_to_recv_buffer(buffer: &mut BTreeMap<u32, Segment>, segment: Segment) {
