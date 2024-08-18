@@ -224,7 +224,7 @@ fn mf_explicit_sequence_numbers() {
 
 #[test]
 fn mf_connect() {
-    setup_connected_uut_client();
+    setup_connected_uut();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -233,7 +233,7 @@ fn mf_connect() {
 
 #[test]
 fn mf_shutdown_uut_before_tc() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     tc_shutdown(&mut state);
@@ -242,7 +242,7 @@ fn mf_shutdown_uut_before_tc() {
 
 #[test]
 fn mf_shutdown_uut_before_tc__read_after_shutdown() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     // uut side has sent FIN. But tc hasn't, so tc can still write and uut can
@@ -255,7 +255,7 @@ fn mf_shutdown_uut_before_tc__read_after_shutdown() {
 
 #[test]
 fn mf_shutdown_uut_before_tc__write_after_shutdown_fails() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
 
@@ -270,7 +270,7 @@ fn mf_shutdown_uut_before_tc__write_after_shutdown_fails() {
 
 #[test]
 fn mf_shutdown_tc_before_uut() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     tc_shutdown(&mut state);
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
@@ -279,7 +279,7 @@ fn mf_shutdown_tc_before_uut() {
 
 #[test]
 fn mf_shutdown_tc_before_uut__write_after_shutdown() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     tc_shutdown(&mut state);
 
@@ -292,7 +292,7 @@ fn mf_shutdown_tc_before_uut__write_after_shutdown() {
 
 #[test]
 fn mf_simultaneous_shutdown() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // uut sends FIN
     state.timer.expect_start();
@@ -321,7 +321,7 @@ fn mf_simultaneous_shutdown() {
 
 #[test]
 fn mf_close() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"some data");
     uut_write_with_tc_ack(&mut state, b"some data");
@@ -332,7 +332,7 @@ fn mf_close() {
 
 #[test]
 fn af_uut_retransmits_fin() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
@@ -360,7 +360,7 @@ fn af_uut_retransmits_fin() {
 
 #[test]
 fn af_uut_retransmits_data_and_fin() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
@@ -402,7 +402,7 @@ fn af_uut_retransmits_data_and_fin() {
 
 #[test]
 fn af_tc_retransmits_fin() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"some data");
     uut_write_with_tc_ack(&mut state, b"some data to write");
@@ -422,7 +422,7 @@ fn af_tc_retransmits_fin() {
 
 #[test]
 fn af_tc_retransmits_data_and_fin() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"some data");
     uut_write_with_tc_ack(&mut state, b"some data to write");
@@ -450,7 +450,7 @@ fn af_tc_retransmits_data_and_fin() {
 
 #[test]
 fn mf_client_read_once() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"some data");
 
@@ -458,8 +458,8 @@ fn mf_client_read_once() {
 }
 
 #[test]
-fn mf_client_read_multiple_times() {
-    let mut state = setup_connected_uut_client();
+fn mf_uut_read_multiple_times() {
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"first rweouinwrte");
     uut_read(&mut state, b"second hfuiasud");
@@ -476,8 +476,8 @@ fn mf_client_read_multiple_times() {
 }
 
 #[test]
-fn mf_client_write_once() {
-    let mut state = setup_connected_uut_client();
+fn mf_uut_write_once() {
+    let mut state = setup_connected_uut();
 
     uut_write_with_tc_ack(&mut state, b"some data");
 
@@ -485,8 +485,8 @@ fn mf_client_write_once() {
 }
 
 #[test]
-fn mf_client_write_multiple_times() {
-    let mut state = setup_connected_uut_client();
+fn mf_uut_write_multiple_times() {
+    let mut state = setup_connected_uut();
 
     uut_write_with_tc_ack(&mut state, b"first agfs");
     uut_write_with_tc_ack(&mut state, b"second gfdhdgfh");
@@ -503,8 +503,8 @@ fn mf_client_write_multiple_times() {
 }
 
 #[test]
-fn mf_client_reads_and_writes() {
-    let mut state = setup_connected_uut_client();
+fn mf_uut_reads_and_writes() {
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"first");
     uut_write_with_tc_ack(&mut state, b"second");
@@ -519,7 +519,7 @@ fn mf_client_reads_and_writes() {
 
 #[test]
 fn mf_simultaneous_read_and_write() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_write_with_tc_ack(&mut state, b"some data to write");
     uut_read(&mut state, b"some data to read");
@@ -573,7 +573,7 @@ fn mf_simultaneous_read_and_write() {
 // to chain them together, running one scenario after the other
 #[test]
 fn af_uut_retransmits_data_due_to_timeout() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
@@ -603,7 +603,7 @@ fn af_uut_retransmits_data_due_to_timeout() {
 
 #[test]
 fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
@@ -661,7 +661,7 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
 // be resent.
 #[test]
 fn af_uut_does_not_retransmit_data_due_to_old_ack() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data successfully. This is to check that this data
     // isn't retransmitted
@@ -711,7 +711,7 @@ fn af_uut_does_not_retransmit_data_due_to_old_ack() {
 
 #[test]
 fn af_first_segment_acked_but_not_second() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
     let initial_send_next = state.send_next;
 
     state.timer.expect_start();
@@ -751,7 +751,7 @@ fn af_first_segment_acked_but_not_second() {
 
 #[test]
 fn af_cumulative_ack() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
     let initial_send_next = state.send_next;
 
     state.timer.expect_start();
@@ -777,7 +777,7 @@ fn af_cumulative_ack() {
 
 #[test]
 fn af_multi_segment_write() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Generate some long data to write
     let len = MAXIMUM_SEGMENT_SIZE + 10 + rand::random::<u32>() % 100;
@@ -828,7 +828,7 @@ fn random_data_of_length(length: u32) -> Vec<u8> {
 
 #[test]
 fn af_same_segment_carries_data_and_acks() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data from uut
     state.timer.expect_start();
@@ -846,7 +846,7 @@ fn af_same_segment_carries_data_and_acks() {
 
 #[test]
 fn af_out_of_order_segment() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     let data1 = b"some data";
     let len1 = data1.len() as u32;
@@ -884,7 +884,7 @@ fn af_out_of_order_segment() {
 
 #[test]
 fn af_multiple_out_of_order_segments() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     let mut segments = Vec::new();
     let len = 10;
@@ -963,7 +963,7 @@ fn af_multiple_out_of_order_segments() {
 
 #[test]
 fn af_out_of_order_receive_buffer_full() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     let mut segments = Vec::new();
     let num_segments = (MAXIMUM_RECV_BUFFER_SIZE + 1) as u32;
@@ -1012,7 +1012,7 @@ fn af_out_of_order_receive_buffer_full() {
 
 #[test]
 fn af_too_small_read_buffer() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     uut_read(&mut state, b"some intial data");
 
@@ -1033,7 +1033,7 @@ fn af_too_small_read_buffer() {
 
 #[test]
 fn af_tc_retransmits_data() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send some data
     let (sent_seg, received_ack) = uut_read(&mut state, b"some data to read");
@@ -1050,7 +1050,7 @@ fn af_tc_retransmits_data() {
 
 #[test]
 fn af_tc_retransmits_multiple_data_segments() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     // Send two data segments
     let (sent_seg1, _received_ack1) =
@@ -1072,7 +1072,7 @@ fn af_tc_retransmits_multiple_data_segments() {
 
 #[test]
 fn af_ack_does_not_cause_ack_to_be_sent() {
-    let mut state = setup_connected_uut_client();
+    let mut state = setup_connected_uut();
 
     let (sent_ack1, _received_data_seg1) =
         uut_write_with_tc_ack(&mut state, b"datadatadata");
@@ -1111,7 +1111,7 @@ fn test_end_check(state: &mut State) {
     // TODO: Check that all buffers empty
 }
 
-fn setup_connected_uut_client() -> State {
+fn setup_connected_uut() -> State {
     let tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let tc_socket = UdpSocket::bind(tc_addr).unwrap();
     tc_socket
