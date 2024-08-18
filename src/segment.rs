@@ -141,11 +141,17 @@ impl Segment {
 
 impl fmt::Debug for Segment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let formatted_data = if let Ok(s) = str::from_utf8(&self.data) {
+            s
+        } else {
+            &format!("{:?}", &self.data)
+        };
+        
         f.debug_struct("Segment")
             .field("kind", &self.kind)
             .field("seq_num", &self.seq_num)
             .field("ack_num", &self.ack_num)
-            .field("data", &str::from_utf8(&self.data).unwrap())
+            .field("data", &formatted_data)
             .finish()
     }
 }
