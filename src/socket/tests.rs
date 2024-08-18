@@ -233,7 +233,7 @@ fn mf_shutdown_tc_before_uut() {
     main_flow_uut_write(&mut state, b"some data to write");
     main_flow_uut_read(&mut state, b"some data to read");
 
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
     uut_shutdown_with_tc_ack__tc_already_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
@@ -245,7 +245,7 @@ fn mf_shutdown_tc_before_uut_write_after_shutdown() {
     main_flow_uut_write(&mut state, b"some data to write");
     main_flow_uut_read(&mut state, b"some data to read");
 
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
 
     // tc side has sent FIN. But uut hasn't, so uut can still write
     main_flow_uut_write(&mut state, b"some data");
@@ -265,7 +265,7 @@ fn mf_shutdown_uut_before_tc_read_after_shutdown() {
     // read
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
     main_flow_uut_read(&mut state, b"some data");
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
 
     wait_shutdown_complete(state);
 }
@@ -609,7 +609,7 @@ fn af_uut_retransmits_fin() {
     send_segment(&state, &ack);
     state.timer.wait_for_call();
 
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -654,7 +654,7 @@ fn af_uut_retransmits_data_and_fin() {
     send_segment(&state, &fin_ack);
     state.timer.wait_for_call();
 
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -1028,7 +1028,7 @@ fn af_tc_retransmits_fin() {
     main_flow_uut_write(&mut state, b"some data to write");
 
     // Send FIN
-    let (sent_fin, received_ack) = main_flow_tc_shutdown(&mut state);
+    let (sent_fin, received_ack) = tc_shutdown(&mut state);
 
     // Re-transmit the FIN and get the same ack
     send_segment(&mut state, &sent_fin);
@@ -1050,7 +1050,7 @@ fn af_tc_retransmits_data_and_fin() {
     // Send some data and a FIN
     let (sent_data_seg, _received_data_ack) =
         main_flow_uut_read(&mut state, b"some data to read");
-    let (sent_fin, received_fin_ack) = main_flow_tc_shutdown(&mut state);
+    let (sent_fin, received_fin_ack) = tc_shutdown(&mut state);
 
     // Re-transmit the data and FIN
     send_segment(&mut state, &sent_data_seg);
@@ -1179,7 +1179,7 @@ fn shutdown(mut state: State) {
 
     // Then do the shutdown
     uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
-    main_flow_tc_shutdown(&mut state);
+    tc_shutdown(&mut state);
     wait_shutdown_complete(state);
 }
 
@@ -1232,7 +1232,7 @@ fn uut_shutdown(state: &mut State) -> Segment {
     exp_fin
 }
 
-fn main_flow_tc_shutdown(state: &mut State) -> (Segment, Segment) {
+fn tc_shutdown(state: &mut State) -> (Segment, Segment) {
     // tc sends FIN
     let send_seg = Segment::new_empty(Fin, state.receive_next, state.send_next);
     send_segment(&state, &send_seg);
