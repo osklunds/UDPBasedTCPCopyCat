@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use super::*;
 
 mod mock_timer;
@@ -221,9 +223,20 @@ fn mf_explicit_sequence_numbers() {
 }
 
 #[test]
-fn mf_connect_shutdown() {
-    let state = setup_connected_uut_client();
-    shutdown(state);
+fn mf_connect() {
+    setup_connected_uut_client();
+}
+
+#[test]
+fn mf_shutdown_uut_before_tc() {
+    let mut state = setup_connected_uut_client();
+
+    main_flow_uut_write(&mut state, b"some data to write");
+    main_flow_uut_read(&mut state, b"some data to read");
+
+    uut_shutdown_with_tc_ack__tc_still_connected(&mut state);
+    tc_shutdown(&mut state);
+    wait_shutdown_complete(state);
 }
 
 #[test]
@@ -239,7 +252,7 @@ fn mf_shutdown_tc_before_uut() {
 }
 
 #[test]
-fn mf_shutdown_tc_before_uut_write_after_shutdown() {
+fn mf_shutdown_tc_before_uut__write_after_shutdown() {
     let mut state = setup_connected_uut_client();
 
     main_flow_uut_write(&mut state, b"some data to write");
@@ -1183,12 +1196,10 @@ fn shutdown(mut state: State) {
     wait_shutdown_complete(state);
 }
 
-#[allow(non_snake_case)]
 fn uut_shutdown_with_tc_ack__tc_still_connected(state: &mut State) {
     uut_shutdown_with_tc_ack(state, true)
 }
 
-#[allow(non_snake_case)]
 fn uut_shutdown_with_tc_ack__tc_already_shutdown(state: &mut State) {
     uut_shutdown_with_tc_ack(state, false)
 }
