@@ -655,7 +655,10 @@ impl Connection {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
                     if !self.handle_received_segment(segment.unwrap()).await {
-                        // async_std::task::sleep(Duration::from_secs(1)).await;
+                        // TODO: This sleep is needed because once FIN from tc
+                        // received, Connection returns. But still need
+                        // to schedule the send of the ACK to that FIN.
+                        async_std::task::sleep(Duration::from_millis(1)).await;
                         return;
                     }
                 },
