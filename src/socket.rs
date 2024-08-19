@@ -6,17 +6,17 @@ use async_std::future;
 use async_std::net::*;
 use async_trait::async_trait;
 use futures::executor::block_on;
+use futures::future::select_all;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
-use futures::future::select_all;
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Result};
+use std::pin::Pin;
 use std::str;
 use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::pin::Pin;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -56,7 +56,7 @@ pub struct Listener {
     local_addr: SocketAddr,
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
-    accept_rx: Receiver<ServerStream>
+    accept_rx: Receiver<ServerStream>,
 }
 
 pub struct Stream {
@@ -97,7 +97,7 @@ enum UserAction {
     SendData(Vec<u8>),
     Shutdown,
     Close,
-    Accept
+    Accept,
 }
 
 impl Listener {
@@ -106,7 +106,8 @@ impl Listener {
             Ok(udp_socket) => {
                 println!("Listener started");
                 let local_addr = udp_socket.local_addr().unwrap();
-                let (user_action_tx, user_action_rx) = async_channel::unbounded();
+                let (user_action_tx, user_action_rx) =
+                    async_channel::unbounded();
                 let (accept_tx, accept_rx) = async_channel::unbounded();
 
                 let udp_socket = Arc::new(udp_socket);
@@ -114,13 +115,13 @@ impl Listener {
                 let join_handle = thread::Builder::new()
                     .name("server".to_string())
                     .spawn(move || {
-                        let mut server = Server::new(
-                            Arc::clone(&udp_socket),
-                            accept_tx
-                        );
+                        let mut server =
+                            Server::new(Arc::clone(&udp_socket), accept_tx);
 
-                        block_on(server.server_loop(Arc::clone(&udp_socket),
-                                                    &user_action_rx))
+                        block_on(server.server_loop(
+                            Arc::clone(&udp_socket),
+                            &user_action_rx,
+                        ))
                     })
                     .unwrap();
 
@@ -128,7 +129,7 @@ impl Listener {
                     local_addr,
                     user_action_tx,
                     join_handle,
-                    accept_rx
+                    accept_rx,
                 };
                 Ok(listener)
             }
@@ -149,12 +150,11 @@ impl Listener {
         };
         Ok((stream, peer_addr))
     }
-
 }
 
 enum ServerSelectResult {
     RecvSocket(Segment, SocketAddr),
-    RecvUserAction(Option<UserAction>)
+    RecvUserAction(Option<UserAction>),
 }
 
 struct Server {
@@ -164,35 +164,37 @@ struct Server {
 }
 
 impl Server {
-    pub fn new(udp_socket: Arc<UdpSocket>, accept_tx: Sender<ServerStream>) -> Self {
-
+    pub fn new(
+        udp_socket: Arc<UdpSocket>,
+        accept_tx: Sender<ServerStream>,
+    ) -> Self {
         Self {
             udp_socket,
             accept_tx,
-            connections: BTreeMap::new()
+            connections: BTreeMap::new(),
         }
     }
 
-    pub async fn server_loop(&mut self,
-                             udp_socket: Arc<UdpSocket>,
-                             user_action_rx: &Receiver<UserAction>
+    pub async fn server_loop(
+        &mut self,
+        udp_socket: Arc<UdpSocket>,
+        user_action_rx: &Receiver<UserAction>,
     ) {
         loop {
             let future_recv_socket = Box::pin(Self::recv_socket(&udp_socket));
-            let future_recv_user_action = Box::pin(Self::recv_user_action(user_action_rx));
+            let future_recv_user_action =
+                Box::pin(Self::recv_user_action(user_action_rx));
 
-            let futures: Vec<Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>> =
-                vec![future_recv_socket, future_recv_user_action];
+            let futures: Vec<
+                Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
+            > = vec![future_recv_socket, future_recv_user_action];
 
-            let (result, _index, _rest) =
-                select_all(futures).await;
+            let (result, _index, _rest) = select_all(futures).await;
             match result {
                 ServerSelectResult::RecvSocket(segment, recv_addr) => {
                     self.handle_received_segment(segment, recv_addr).await;
                 }
-                _ => {
-
-                }
+                _ => {}
             }
         }
     }
@@ -200,7 +202,10 @@ impl Server {
     async fn recv_socket(udp_socket: &Arc<UdpSocket>) -> ServerSelectResult {
         let mut buf = [0; 4096];
         let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
-        ServerSelectResult::RecvSocket(Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
+        ServerSelectResult::RecvSocket(
+            Segment::decode(&buf[0..amt]).unwrap(),
+            recv_addr,
+        )
     }
 
     async fn recv_user_action(
@@ -213,40 +218,44 @@ impl Server {
         ServerSelectResult::RecvUserAction(result)
     }
 
-    async fn handle_received_segment(&mut self, segment: Segment, recv_addr: SocketAddr) -> bool {
+    async fn handle_received_segment(
+        &mut self,
+        segment: Segment,
+        recv_addr: SocketAddr,
+    ) -> bool {
         println!("{:?} segment \n\n\n\n", segment);
         println!("accept called");
         match segment.kind() {
-            Syn => {
-                self.handle_syn(segment, recv_addr).await
-            },
-            _ => {
-                true
-            }
+            Syn => self.handle_syn(segment, recv_addr).await,
+            _ => true,
         }
-
     }
 
-    async fn handle_syn(&mut self, segment: Segment, recv_addr: SocketAddr) -> bool {
+    async fn handle_syn(
+        &mut self,
+        segment: Segment,
+        recv_addr: SocketAddr,
+    ) -> bool {
         let send_next = rand::random();
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
 
         let encoded_syn_ack = Segment::encode(&syn_ack);
 
-        self.udp_socket.send_to(&encoded_syn_ack, recv_addr).await.unwrap();
+        self.udp_socket
+            .send_to(&encoded_syn_ack, recv_addr)
+            .await
+            .unwrap();
 
         println!("accept done");
 
         let server_stream = ServerStream {
             udp_socket: Arc::clone(&self.udp_socket),
-            peer_addr: recv_addr
+            peer_addr: recv_addr,
         };
         self.accept_tx.send(server_stream).await.unwrap();
 
         // TODO: Handle duplicate syn etc
-
-        
 
         true
     }
@@ -255,7 +264,7 @@ impl Server {
 struct ServerConnection {
     connection: Connection,
     socket_send_rx: Receiver<UserAction>,
-    socket_receive_tx: Sender<UserAction>
+    socket_receive_tx: Sender<UserAction>,
 }
 
 impl Stream {
@@ -286,13 +295,14 @@ impl Stream {
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        let mut client_connection = ClientConnection::new(udp_socket,
-                                                                      peer_action_tx,
-                                                                      user_action_rx,
-                                                                      send_next,
-                                                                      receive_next
+                        let mut client_connection = ClientConnection::new(
+                            udp_socket,
+                            peer_action_tx,
+                            user_action_rx,
+                            send_next,
+                            receive_next,
                         );
-                        
+
                         block_on(client_connection.run(timer));
                     })
                     .unwrap();
@@ -434,7 +444,7 @@ impl ClientStream {
             block_on(
                 self.user_action_tx.send(UserAction::SendData(buf.to_vec())),
             )
-                .unwrap();
+            .unwrap();
             Ok(buf.len())
         }
     }
@@ -533,14 +543,14 @@ impl ClientConnection {
             peer_action_tx,
             user_action_rx,
             send_next,
-            receive_next
+            receive_next,
         );
 
         Self {
             udp_socket: Arc::new(udp_socket),
             socket_send_rx: Arc::new(socket_send_rx),
             socket_receive_tx: Arc::new(socket_receive_tx),
-            connection
+            connection,
         }
     }
 
@@ -552,7 +562,11 @@ impl ClientConnection {
         let future_recv_socket_send_rx = socket_send_rx.recv().fuse();
         let future_connection = self.connection.run(timer).fuse();
 
-        pin_mut!(future_recv_socket, future_recv_socket_send_rx, future_connection);
+        pin_mut!(
+            future_recv_socket,
+            future_recv_socket_send_rx,
+            future_connection
+        );
 
         loop {
             select! {
@@ -648,7 +662,11 @@ impl Connection {
 
         let future_timeout = Self::timeout(&timer, true).fuse();
 
-        pin_mut!(future_recv_socket_receive, future_recv_user_action, future_timeout);
+        pin_mut!(
+            future_recv_socket_receive,
+            future_recv_user_action,
+            future_timeout
+        );
 
         loop {
             select! {

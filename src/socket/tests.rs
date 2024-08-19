@@ -1,7 +1,5 @@
-
 use super::*;
 
-mod mock_timer;
 mod client;
+mod mock_timer;
 mod server;
-
