@@ -18,6 +18,7 @@ fn mf_explicit_sequence_numbers() {
     let server_addr = listener.local_addr().unwrap();
 
     let server_thread = thread::spawn(move || {
+        println!("{:?}\n\n\n\n", "call accept");
         let _server_socket = listener.accept().unwrap();
         println!("{:?}", "accepted");
     });
@@ -27,33 +28,28 @@ fn mf_explicit_sequence_numbers() {
     let client_socket = UdpSocket::bind(local_addr).unwrap();
     UdpSocket::connect(&client_socket, server_addr).unwrap();
 
-    let send_next = 77;
-    let syn = Segment::new_empty(Syn, send_next, 0);
+    // Send SYN
+    let syn = Segment::new_empty(Syn, 77, 0);
     let encoded_syn = Segment::encode(&syn);
-
     client_socket.send(&encoded_syn).unwrap();
 
     // Receive SYN-ACK
     let mut buf = [0; 4096];
     let amt = client_socket.recv(&mut buf).unwrap();
-
     let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
 
-    let new_send_next = send_next + 1;
-    assert_eq!(new_send_next, syn_ack.ack_num());
+    assert_eq!(78, syn_ack.ack_num());
     assert_eq!(SynAck, syn_ack.kind());
     assert_eq!(0, syn_ack.data().len());
 
-    let receive_next = syn_ack.seq_num() + 1;
+    let send_next = syn_ack.seq_num() + 1;
 
     // Send ACK
-    let ack = Segment::new_empty(Ack, new_send_next, receive_next);
+    let ack = Segment::new_empty(Ack, 78, send_next);
     let encoded_ack = Segment::encode(&ack);
-
     client_socket.send(&encoded_ack).unwrap();
 
     println!("{:?}", "connected");
-
 
     server_thread.join().unwrap();
 
