@@ -283,20 +283,17 @@ impl Stream {
                     Self::client_handshake(&udp_socket, init_seq_num).await
                 });
 
-                let temp_peer_addr = udp_socket.peer_addr().unwrap();
-
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        block_on(ClientConnection::run(
-                            udp_socket,
-                            temp_peer_addr,
-                            peer_action_tx,
-                            send_next,
-                            receive_next,
-                            user_action_rx,
-                            timer
-                        ));
+                        let mut client_connection = ClientConnection::new(udp_socket,
+                                                                      peer_action_tx,
+                                                                      user_action_rx,
+                                                                      send_next,
+                                                                      receive_next
+                        );
+                        
+                        block_on(client_connection.run(timer));
                     })
                     .unwrap();
                 let client_stream = ClientStream {
@@ -513,22 +510,24 @@ impl ServerStream {
 }
 
 struct ClientConnection {
+    udp_socket: Arc<UdpSocket>,
+    socket_send_rx: Arc<Receiver<Segment>>,
+    socket_receive_tx: Arc<Sender<Segment>>,
+    connection: Connection,
 }
 
 impl ClientConnection {
-    pub async fn run<T: Timer>(
+    pub fn new(
         udp_socket: UdpSocket,
-        peer_addr: SocketAddr,
         peer_action_tx: Sender<PeerAction>,
+        user_action_rx: Receiver<UserAction>,
         send_next: u32,
         receive_next: u32,
-        user_action_rx: Receiver<UserAction>,
-        timer: Arc<T>,
-    ) {
+    ) -> Self {
         let (socket_send_tx, socket_send_rx) = async_channel::unbounded();
         let (socket_receive_tx, socket_receive_rx) = async_channel::unbounded();
 
-        let mut connection = Connection::new(
+        let connection = Connection::new(
             socket_send_tx,
             socket_receive_rx,
             peer_action_tx,
@@ -537,31 +536,41 @@ impl ClientConnection {
             receive_next
         );
 
-        let future_recv_socket = Self::recv_socket(&udp_socket).fuse();
-        let future_recv_socket_send = Self::recv_socket_send(&socket_send_rx).fuse();
-        let future_connection = connection.run(timer).fuse();
+        Self {
+            udp_socket: Arc::new(udp_socket),
+            socket_send_rx: Arc::new(socket_send_rx),
+            socket_receive_tx: Arc::new(socket_receive_tx),
+            connection
+        }
+    }
 
-        pin_mut!(future_recv_socket, future_recv_socket_send, future_connection);
+    pub async fn run<T: Timer>(&mut self, timer: Arc<T>) {
+        let udp_socket = Arc::clone(&self.udp_socket);
+        let future_recv_socket = Self::recv_socket(&udp_socket).fuse();
+
+        let socket_send_rx = Arc::clone(&self.socket_send_rx);
+        let future_recv_socket_send_rx = socket_send_rx.recv().fuse();
+        let future_connection = self.connection.run(timer).fuse();
+
+        pin_mut!(future_recv_socket, future_recv_socket_send_rx, future_connection);
 
         loop {
             select! {
                 segment = future_recv_socket => {
                     // println!("\n\n recv  {:?}   \n\n\n\n", segment);
-                    socket_receive_tx.send(segment).await.unwrap();
+                    self.socket_receive_tx.send(segment).await.unwrap();
                     future_recv_socket.set(Self::recv_socket(&udp_socket).fuse());
                 },
 
-                segment = future_recv_socket_send => {
+                segment = future_recv_socket_send_rx => {
                     match segment {
-                        Some(segment) => {
+                        Ok(segment) => {
                             // println!("\n\n send  {:?}   \n\n\n\n", segment);
                             let encoded_segment = segment.encode();
-                            udp_socket.send_to(&encoded_segment,
-                                               peer_addr).await.unwrap();
-                            future_recv_socket_send.set(Self::recv_socket_send(
-                                &socket_send_rx).fuse())
+                            udp_socket.send(&encoded_segment).await.unwrap();
+                            future_recv_socket_send_rx.set(socket_send_rx.recv().fuse())
                         },
-                        None => {
+                        Err(_) => {
                             // println!("\n\n  {:?}   \n\n\n\n", "None");
                             return
                         }
@@ -582,13 +591,6 @@ impl ClientConnection {
         let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
         assert_eq!(peer_addr, recv_addr);
         Segment::decode(&buf[0..amt]).unwrap()
-    }
-
-    async fn recv_socket_send(socket_send_rx: &Receiver<Segment>) -> Option<Segment> {
-        match socket_send_rx.recv().await {
-            Ok(segment) => Some(segment),
-            Err(_) => None,
-        }
     }
 }
 
@@ -653,7 +655,7 @@ impl Connection {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
                     if !self.handle_received_segment(segment.unwrap()).await {
-                        async_std::task::sleep(Duration::from_secs(1)).await;
+                        // async_std::task::sleep(Duration::from_secs(1)).await;
                         return;
                     }
                 },
