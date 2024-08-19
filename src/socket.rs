@@ -109,14 +109,18 @@ impl Listener {
                 let (user_action_tx, user_action_rx) = async_channel::unbounded();
                 let (accept_tx, accept_rx) = async_channel::unbounded();
 
+                let udp_socket = Arc::new(udp_socket);
+
                 let join_handle = thread::Builder::new()
                     .name("server".to_string())
                     .spawn(move || {
                         let mut server = Server::new(
+                            Arc::clone(&udp_socket),
                             accept_tx
                         );
 
-                        block_on(server.server_loop(Arc::new(udp_socket), &user_action_rx))
+                        block_on(server.server_loop(Arc::clone(&udp_socket),
+                                                    &user_action_rx))
                     })
                     .unwrap();
 
@@ -154,15 +158,18 @@ enum ServerSelectResult {
 }
 
 struct Server {
+    udp_socket: Arc<UdpSocket>,
     accept_tx: Sender<ServerStream>,
-    connections: Vec<ServerConnection>,
+    connections: BTreeMap<SocketAddr, Connection<'static>>,
 }
 
 impl Server {
-    pub fn new(accept_tx: Sender<ServerStream>) -> Self {
+    pub fn new(udp_socket: Arc<UdpSocket>, accept_tx: Sender<ServerStream>) -> Self {
+
         Self {
+            udp_socket,
             accept_tx,
-            connections: Vec::new()
+            connections: BTreeMap::new()
         }
     }
 
@@ -181,25 +188,7 @@ impl Server {
                 select_all(futures).await;
             match result {
                 ServerSelectResult::RecvSocket(segment, recv_addr) => {
-                    println!("{:?} segment \n\n\n\n", segment);
-                    println!("accept called");
-                    assert_eq!(Syn, segment.kind());
-
-                    let send_next = rand::random();
-                    let receive_next = segment.seq_num() + 1;
-                    let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
-
-                    let encoded_syn_ack = Segment::encode(&syn_ack);
-
-                    udp_socket.send_to(&encoded_syn_ack, recv_addr).await.unwrap();
-
-                    println!("accept done");
-
-                    let server_stream = ServerStream {
-                        udp_socket: Arc::clone(&udp_socket),
-                        peer_addr: recv_addr
-                    };
-                    self.accept_tx.send(server_stream).await.unwrap();
+                    self.handle_received_segment(segment, recv_addr).await;
                 }
                 _ => {
 
@@ -222,6 +211,44 @@ impl Server {
             Err(_) => None,
         };
         ServerSelectResult::RecvUserAction(result)
+    }
+
+    async fn handle_received_segment(&mut self, segment: Segment, recv_addr: SocketAddr) -> bool {
+        println!("{:?} segment \n\n\n\n", segment);
+        println!("accept called");
+        match segment.kind() {
+            Syn => {
+                self.handle_syn(segment, recv_addr).await
+            },
+            _ => {
+                true
+            }
+        }
+
+    }
+
+    async fn handle_syn(&mut self, segment: Segment, recv_addr: SocketAddr) -> bool {
+        let send_next = rand::random();
+        let receive_next = segment.seq_num() + 1;
+        let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
+
+        let encoded_syn_ack = Segment::encode(&syn_ack);
+
+        self.udp_socket.send_to(&encoded_syn_ack, recv_addr).await.unwrap();
+
+        println!("accept done");
+
+        let server_stream = ServerStream {
+            udp_socket: Arc::clone(&self.udp_socket),
+            peer_addr: recv_addr
+        };
+        self.accept_tx.send(server_stream).await.unwrap();
+
+        // TODO: Handle duplicate syn etc
+
+        
+
+        true
     }
 }
 
