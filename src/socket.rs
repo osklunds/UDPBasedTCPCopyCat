@@ -113,19 +113,25 @@ impl Listener {
         let mut buf = [0; 4096];
         let (amt, peer_addr) =
             block_on(self.udp_socket.recv_from(&mut buf)).unwrap();
+        let syn = Segment::decode(&buf[0..amt]).unwrap();
 
-        let string = str::from_utf8(&buf[0..amt]).unwrap();
+        let send_next = rand::random();
+        let receive_next = syn.seq_num() + 1;
+        let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
 
-        if string == "syn" {
-            println!("Got syn from {:?}", peer_addr);
-            let stream =
-                Stream::accept(Arc::clone(&self.udp_socket), peer_addr)
-                    .unwrap();
-            Ok((stream, peer_addr))
-        } else {
-            println!("non-syn received {:?}", string);
-            unimplemented!()
-        }
+        let encoded_syn_ack = Segment::encode(&syn_ack);
+
+        block_on(self.udp_socket.send_to(&encoded_syn_ack, peer_addr)).unwrap();
+
+        println!("accept done");
+
+        let server_stream = ServerStream {
+            udp_socket: Arc::clone(&self.udp_socket),
+            peer_addr
+        };
+        let inner_stream = InnerStream::Server(server_stream);
+        let stream = Stream { inner_stream };
+        Ok((stream, peer_addr))
     }
 }
 
