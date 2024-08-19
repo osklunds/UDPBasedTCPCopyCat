@@ -13,8 +13,9 @@ use crate::segment::Segment;
 
 #[test]
 fn mf_explicit_sequence_numbers() {
-    let server_addr: SocketAddr = "127.0.0.1:12345".parse().unwrap();
-    let listener = Listener::bind(server_addr).unwrap();
+    let initial_server_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let listener = Listener::bind(initial_server_addr).unwrap();
+    let server_addr = listener.local_addr().unwrap();
 
     let server_thread = thread::spawn(move || {
         let _server_socket = listener.accept().unwrap();

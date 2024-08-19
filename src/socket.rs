@@ -108,6 +108,10 @@ impl Listener {
         }
     }
 
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        self.udp_socket.local_addr()
+    }
+
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
         println!("accept called");
         let mut buf = [0; 4096];
