@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::executor::block_on;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
+use futures::future::select_all;
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Result};
 use std::str;
@@ -15,6 +16,7 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::pin::Pin;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -51,7 +53,10 @@ impl Timer for PlainTimer {
 }
 
 pub struct Listener {
-    udp_socket: Arc<UdpSocket>,
+    local_addr: SocketAddr,
+    user_action_tx: Sender<UserAction>,
+    join_handle: JoinHandle<()>,
+    accept_rx: Receiver<ServerStream>
 }
 
 pub struct Stream {
@@ -92,6 +97,7 @@ enum UserAction {
     SendData(Vec<u8>),
     Shutdown,
     Close,
+    Accept
 }
 
 impl Listener {
@@ -99,8 +105,26 @@ impl Listener {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 println!("Listener started");
+                let local_addr = udp_socket.local_addr().unwrap();
+                let (user_action_tx, user_action_rx) = async_channel::unbounded();
+                let (accept_tx, accept_rx) = async_channel::unbounded();
+
+                let join_handle = thread::Builder::new()
+                    .name("server".to_string())
+                    .spawn(move || {
+                        let mut server = Server::new(
+                            accept_tx
+                        );
+
+                        block_on(server.server_loop(Arc::new(udp_socket), &user_action_rx))
+                    })
+                    .unwrap();
+
                 let listener = Listener {
-                    udp_socket: Arc::new(udp_socket),
+                    local_addr,
+                    user_action_tx,
+                    join_handle,
+                    accept_rx
                 };
                 Ok(listener)
             }
@@ -109,34 +133,102 @@ impl Listener {
     }
 
     pub fn local_addr(&self) -> Result<SocketAddr> {
-        self.udp_socket.local_addr()
+        Ok(self.local_addr)
     }
 
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
-        println!("accept called");
-        let mut buf = [0; 4096];
-        let (amt, peer_addr) =
-            block_on(self.udp_socket.recv_from(&mut buf)).unwrap();
-        let syn = Segment::decode(&buf[0..amt]).unwrap();
+        let server_stream = block_on(self.accept_rx.recv()).unwrap();
+        let peer_addr = server_stream.peer_addr;
 
-        let send_next = rand::random();
-        let receive_next = syn.seq_num() + 1;
-        let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
-
-        let encoded_syn_ack = Segment::encode(&syn_ack);
-
-        block_on(self.udp_socket.send_to(&encoded_syn_ack, peer_addr)).unwrap();
-
-        println!("accept done");
-
-        let server_stream = ServerStream {
-            udp_socket: Arc::clone(&self.udp_socket),
-            peer_addr
+        let stream = Stream {
+            inner_stream: InnerStream::Server(server_stream),
         };
-        let inner_stream = InnerStream::Server(server_stream);
-        let stream = Stream { inner_stream };
         Ok((stream, peer_addr))
     }
+
+}
+
+enum ServerSelectResult {
+    RecvSocket(Segment, SocketAddr),
+    RecvUserAction(Option<UserAction>)
+}
+
+struct Server {
+    accept_tx: Sender<ServerStream>,
+    connections: Vec<ServerConnection>,
+}
+
+impl Server {
+    pub fn new(accept_tx: Sender<ServerStream>) -> Self {
+        Self {
+            accept_tx,
+            connections: Vec::new()
+        }
+    }
+
+    pub async fn server_loop(&mut self,
+                             udp_socket: Arc<UdpSocket>,
+                             user_action_rx: &Receiver<UserAction>
+    ) {
+        loop {
+            let future_recv_socket = Box::pin(Self::recv_socket(&udp_socket));
+            let future_recv_user_action = Box::pin(Self::recv_user_action(user_action_rx));
+
+            let futures: Vec<Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>> =
+                vec![future_recv_socket, future_recv_user_action];
+
+            let (result, _index, _rest) =
+                select_all(futures).await;
+            match result {
+                ServerSelectResult::RecvSocket(segment, recv_addr) => {
+                    println!("{:?} segment \n\n\n\n", segment);
+                    println!("accept called");
+                    assert_eq!(Syn, segment.kind());
+
+                    let send_next = rand::random();
+                    let receive_next = segment.seq_num() + 1;
+                    let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
+
+                    let encoded_syn_ack = Segment::encode(&syn_ack);
+
+                    udp_socket.send_to(&encoded_syn_ack, recv_addr).await.unwrap();
+
+                    println!("accept done");
+
+                    let server_stream = ServerStream {
+                        udp_socket: Arc::clone(&udp_socket),
+                        peer_addr: recv_addr
+                    };
+                    self.accept_tx.send(server_stream).await.unwrap();
+                }
+                _ => {
+
+                }
+            }
+        }
+    }
+
+    async fn recv_socket(udp_socket: &Arc<UdpSocket>) -> ServerSelectResult {
+        let mut buf = [0; 4096];
+        let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
+        ServerSelectResult::RecvSocket(Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
+    }
+
+    async fn recv_user_action(
+        user_action_rx: &Receiver<UserAction>,
+    ) -> ServerSelectResult {
+        let result = match user_action_rx.recv().await {
+            Ok(user_action) => Some(user_action),
+            Err(_) => None,
+        };
+        ServerSelectResult::RecvUserAction(result)
+    }
+}
+
+struct ServerConnection {
+    connection: Connection<'static>,
+    socket_send_rx: Receiver<UserAction>,
+    socket_receive_tx: Sender<UserAction>
 }
 
 impl Stream {
@@ -322,7 +414,7 @@ impl ClientStream {
             block_on(
                 self.user_action_tx.send(UserAction::SendData(buf.to_vec())),
             )
-            .unwrap();
+                .unwrap();
             Ok(buf.len())
         }
     }
@@ -665,6 +757,9 @@ impl<'a> Connection<'a> {
             }
             Some(UserAction::Close) => {
                 return false;
+            }
+            Some(UserAction::Accept) => {
+                panic!("Accept for client")
             }
             None => {
                 return false;
