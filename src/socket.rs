@@ -528,23 +528,25 @@ impl ClientConnection {
         let (socket_send_tx, socket_send_rx) = async_channel::unbounded();
         let (socket_receive_tx, socket_receive_rx) = async_channel::unbounded();
 
-        let future_recv_socket = Self::recv_socket(&udp_socket).fuse();
-        let future_recv_socket_send = Self::recv_socket_send(&socket_send_rx).fuse();
-        let future_connection = Connection::run(
+        let mut connection = Connection::new(
             socket_send_tx,
             socket_receive_rx,
             peer_action_tx,
-            send_next,
-            receive_next,
             user_action_rx,
-            timer
-        ).fuse();
+            send_next,
+            receive_next
+        );
+
+        let future_recv_socket = Self::recv_socket(&udp_socket).fuse();
+        let future_recv_socket_send = Self::recv_socket_send(&socket_send_rx).fuse();
+        let future_connection = connection.run(timer).fuse();
 
         pin_mut!(future_recv_socket, future_recv_socket_send, future_connection);
 
         loop {
             select! {
                 segment = future_recv_socket => {
+                    // println!("\n\n recv  {:?}   \n\n\n\n", segment);
                     socket_receive_tx.send(segment).await.unwrap();
                     future_recv_socket.set(Self::recv_socket(&udp_socket).fuse());
                 },
@@ -552,6 +554,7 @@ impl ClientConnection {
                 segment = future_recv_socket_send => {
                     match segment {
                         Some(segment) => {
+                            // println!("\n\n send  {:?}   \n\n\n\n", segment);
                             let encoded_segment = segment.encode();
                             udp_socket.send_to(&encoded_segment,
                                                peer_addr).await.unwrap();
@@ -559,13 +562,15 @@ impl ClientConnection {
                                 &socket_send_rx).fuse())
                         },
                         None => {
+                            // println!("\n\n  {:?}   \n\n\n\n", "None");
                             return
                         }
                     }
                 },
 
                 _ = future_connection => {
-
+                    // println!("\n\n  {:?}   \n\n\n\n", "returned");
+                    return;
                 }
             }
         }
@@ -588,8 +593,13 @@ impl ClientConnection {
 }
 
 struct Connection {
+    // Channels
     socket_send_tx: Sender<Segment>,
+    socket_receive_rx: Arc<Receiver<Segment>>,
     peer_action_tx: Sender<PeerAction>,
+    user_action_rx: Arc<Receiver<UserAction>>,
+
+    // State
     timer_running: bool,
     send_next: u32,
     receive_next: u32,
@@ -600,18 +610,23 @@ struct Connection {
 }
 
 impl Connection {
-    pub async fn run<T: Timer>(
+    pub fn new(
         socket_send_tx: Sender<Segment>,
         socket_receive_rx: Receiver<Segment>,
         peer_action_tx: Sender<PeerAction>,
+        user_action_rx: Receiver<UserAction>,
+
         send_next: u32,
         receive_next: u32,
-        user_action_rx: Receiver<UserAction>,
-        timer: Arc<T>
-    ) {
-        let mut connection = Self {
+    ) -> Self {
+        Self {
+            // Channels
             socket_send_tx,
+            socket_receive_rx: Arc::new(socket_receive_rx),
             peer_action_tx,
+            user_action_rx: Arc::new(user_action_rx),
+
+            // State
             timer_running: false,
             send_next,
             receive_next,
@@ -619,11 +634,16 @@ impl Connection {
             fin_received: false,
             send_buffer: Vec::new(),
             recv_buffer: BTreeMap::new(),
-        };
+        }
+    }
 
+    pub async fn run<T: Timer>(&mut self, timer: Arc<T>) {
+        let socket_receive_rx = Arc::clone(&self.socket_receive_rx);
         let future_recv_socket_receive = socket_receive_rx.recv().fuse();
-        let future_recv_user_action =
-            Self::recv_user_action(&user_action_rx).fuse();
+
+        let user_action_rx = Arc::clone(&self.user_action_rx);
+        let future_recv_user_action = user_action_rx.recv().fuse();
+
         let future_timeout = Self::timeout(&timer, true).fuse();
 
         pin_mut!(future_recv_socket_receive, future_recv_user_action, future_timeout);
@@ -632,15 +652,15 @@ impl Connection {
             select! {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
-                    if !connection.handle_received_segment(segment.unwrap()).await {
+                    if !self.handle_received_segment(segment.unwrap()).await {
+                        async_std::task::sleep(Duration::from_secs(1)).await;
                         return;
                     }
                 },
 
                 user_action = future_recv_user_action => {
-                    future_recv_user_action.set(Self::recv_user_action(
-                        &user_action_rx).fuse());
-                    if !connection.handle_received_user_action(user_action).await {
+                    future_recv_user_action.set(user_action_rx.recv().fuse());
+                    if !self.handle_received_user_action(user_action).await {
                         return;
                     }
                 },
@@ -648,17 +668,17 @@ impl Connection {
                 _ = future_timeout => {
                     future_timeout.set(Self::timeout(&timer, false).fuse());
 
-                    connection.handle_retransmit().await;
+                    self.handle_retransmit().await;
                 }
             };
-            let buffer_is_empty = connection.send_buffer.is_empty();
+            let buffer_is_empty = self.send_buffer.is_empty();
 
-            if buffer_is_empty && connection.timer_running {
+            if buffer_is_empty && self.timer_running {
                 future_timeout.set(Self::timeout(&timer, true).fuse());
-                connection.timer_running = false;
-            } else if !buffer_is_empty && !connection.timer_running {
+                self.timer_running = false;
+            } else if !buffer_is_empty && !self.timer_running {
                 future_timeout.set(Self::timeout(&timer, false).fuse());
-                connection.timer_running = true;
+                self.timer_running = true;
             }
         }
     }
@@ -794,21 +814,12 @@ impl Connection {
         self.send_segment(&ack).await;
     }
 
-    async fn recv_user_action(
-        user_action_rx: &Receiver<UserAction>,
-    ) -> Option<UserAction> {
-        match user_action_rx.recv().await {
-            Ok(user_action) => Some(user_action),
-            Err(_) => None,
-        }
-    }
-
     async fn handle_received_user_action(
         &mut self,
-        user_action: Option<UserAction>,
+        user_action: core::result::Result<UserAction, async_channel::RecvError>,
     ) -> bool {
         match user_action {
-            Some(UserAction::Shutdown) => {
+            Ok(UserAction::Shutdown) => {
                 let seg =
                     Segment::new_empty(Fin, self.send_next, self.receive_next);
 
@@ -819,7 +830,7 @@ impl Connection {
 
                 self.fin_sent = true;
             }
-            Some(UserAction::SendData(data)) => {
+            Ok(UserAction::SendData(data)) => {
                 for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
                     let seg = Segment::new(
                         Ack,
@@ -834,13 +845,13 @@ impl Connection {
                     self.send_buffer.push(seg);
                 }
             }
-            Some(UserAction::Close) => {
+            Ok(UserAction::Close) => {
                 return false;
             }
-            Some(UserAction::Accept) => {
+            Ok(UserAction::Accept) => {
                 panic!("Accept for client")
             }
-            None => {
+            Err(_) => {
                 return false;
             }
         }
