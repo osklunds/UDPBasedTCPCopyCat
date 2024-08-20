@@ -205,7 +205,6 @@ impl Server {
                             futures.push(Box::pin(async move {
                                 let timer = Arc::new(PlainTimer {});
                                 connection.run(timer).await;
-                                // println!("\n\n  {:?}   \n\n\n\n", "run ret");
                                 ServerSelectResult::RecvUserAction(None)
                             }));
 
@@ -215,16 +214,15 @@ impl Server {
                                     let segment = socket_send_rx.recv().await.unwrap();
                                     udp_socket2.send(&segment.encode()).await.unwrap();
                                 }
-                                // ServerSelectResult::RecvUserAction(None)
                             }));
                         },
                         None => {
-                            println!("\n\n  {:?}   \n\n\n\n", "non syn");
+
                         }
                     }
                 }
-                _x => {
-                    // println!("\n\n  {:?}   \n\n\n\n", x);
+                _ => {
+
                 }
             }
         }
@@ -254,12 +252,11 @@ impl Server {
         segment: Segment,
         recv_addr: SocketAddr,
     ) -> Option<(Connection, Receiver<Segment>)> {
-        println!("{:?} segment \n\n\n\n", segment);
+        println!("handle_received_segment {:?}", segment);
         match segment.kind() {
             Syn => Some(self.handle_syn(segment, recv_addr).await),
             _ => {
                 let socket_receive_tx = self.connections.get(&recv_addr).unwrap();
-                println!("\n\n  {:?}   \n\n\n\n", socket_receive_tx.is_closed());
                 socket_receive_tx.send(segment).await.unwrap();
                 None
             }
@@ -313,7 +310,6 @@ impl Server {
             last_data: None,
         };
 
-        println!("\n\n  {:?}   \n\n\n\n", socket_receive_tx.is_closed());
         assert!(self.connections.insert(recv_addr, socket_receive_tx).is_none());
 
         self.accept_tx.send((server_stream, recv_addr)).await.unwrap();
@@ -726,8 +722,6 @@ impl Connection {
             future_recv_user_action,
             future_timeout
         );
-
-        println!("\n\n  {:?}   \n\n\n\n", "loop");
 
         loop {
             select! {
