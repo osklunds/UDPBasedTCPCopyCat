@@ -211,8 +211,9 @@ impl Server {
                             let udp_socket2 = Arc::clone(&udp_socket);
                             futures.push(Box::pin(async move {
                                 loop {
-                                    let segment = socket_send_rx.recv().await.unwrap();
-                                    udp_socket2.send(&segment.encode()).await.unwrap();
+                                    let (segment, to) = socket_send_rx.recv().await.unwrap();
+                                    udp_socket2.send_to(&segment.encode(),
+                                                        to).await.unwrap();
                                 }
                             }));
                         },
@@ -251,7 +252,7 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> Option<(Connection, Receiver<Segment>)> {
+    ) -> Option<(Connection, Receiver<(Segment, SocketAddr)>)> {
         println!("handle_received_segment {:?}", segment);
         match segment.kind() {
             Syn => Some(self.handle_syn(segment, recv_addr).await),
@@ -267,7 +268,7 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> (Connection, Receiver<Segment>) {
+    ) -> (Connection, Receiver<(Segment, SocketAddr)>) {
         // let mut send_next = rand::random();
         println!("{:?}", "handle syn");
         let mut send_next = 1000; // TODO: Control this a better way
@@ -277,8 +278,6 @@ impl Server {
 
         let encoded_syn_ack = Segment::encode(&syn_ack);
 
-
-        // UdpSocket::connect(&self.udp_socket, recv_addr).await.unwrap();
         self.udp_socket
             .send_to(&encoded_syn_ack, recv_addr)
             .await
@@ -297,6 +296,7 @@ impl Server {
         let connection = Connection::new(
             socket_send_tx,
             socket_receive_rx,
+            recv_addr,
             peer_action_tx,
             user_action_rx,
             send_next,
@@ -578,7 +578,7 @@ impl Read for Stream {
 
 struct ClientConnection {
     udp_socket: Arc<UdpSocket>,
-    socket_send_rx: Arc<Receiver<Segment>>,
+    socket_send_rx: Arc<Receiver<(Segment, SocketAddr)>>,
     socket_receive_tx: Arc<Sender<Segment>>,
     connection: Connection,
 }
@@ -597,6 +597,7 @@ impl ClientConnection {
         let connection = Connection::new(
             socket_send_tx,
             socket_receive_rx,
+            udp_socket.peer_addr().unwrap(),
             peer_action_tx,
             user_action_rx,
             send_next,
@@ -635,7 +636,7 @@ impl ClientConnection {
 
                 segment = future_recv_socket_send_rx => {
                     match segment {
-                        Ok(segment) => {
+                        Ok((segment, _to)) => {
                             // println!("\n\n send  {:?}   \n\n\n\n", segment);
                             let encoded_segment = segment.encode();
                             udp_socket.send(&encoded_segment).await.unwrap();
@@ -666,9 +667,12 @@ impl ClientConnection {
 }
 
 struct Connection {
-    // Channels
-    socket_send_tx: Sender<Segment>,
+    // Socket
+    socket_send_tx: Sender<(Segment, SocketAddr)>,
     socket_receive_rx: Arc<Receiver<Segment>>,
+    peer_addr: SocketAddr,
+
+    // Channels
     peer_action_tx: Sender<PeerAction>,
     user_action_rx: Arc<Receiver<UserAction>>,
 
@@ -684,18 +688,26 @@ struct Connection {
 
 impl Connection {
     pub fn new(
-        socket_send_tx: Sender<Segment>,
+        // Socket
+        socket_send_tx: Sender<(Segment, SocketAddr)>,
         socket_receive_rx: Receiver<Segment>,
+        peer_addr: SocketAddr,
+
+        // Channels
         peer_action_tx: Sender<PeerAction>,
         user_action_rx: Receiver<UserAction>,
 
+        // State
         send_next: u32,
         receive_next: u32,
     ) -> Self {
         Self {
-            // Channels
+            // Socket
             socket_send_tx,
             socket_receive_rx: Arc::new(socket_receive_rx),
+            peer_addr,
+            
+            // Channels
             peer_action_tx,
             user_action_rx: Arc::new(user_action_rx),
 
@@ -940,7 +952,7 @@ impl Connection {
     }
 
     async fn send_segment(&self, segment: &Segment) {
-        self.socket_send_tx.send(segment.clone()).await.unwrap();
+        self.socket_send_tx.send((segment.clone(), self.peer_addr)).await.unwrap();
     }
 
     async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
