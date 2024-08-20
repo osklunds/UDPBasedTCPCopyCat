@@ -161,6 +161,186 @@ enum ServerSelectResult {
     RecvUserAction(Option<UserAction>),
 }
 
+impl Stream {
+    pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
+        // TODO: See if Arc can be removed in non-test code
+        let timer = Arc::new(PlainTimer {});
+        let init_seq_num = rand::random();
+        Self::connect_custom(timer, peer_addr, init_seq_num)
+    }
+
+    fn connect_custom<T: Timer + Send + Sync + 'static, A: ToSocketAddrs>(
+        timer: Arc<T>,
+        peer_addr: A,
+        init_seq_num: u32,
+    ) -> Result<Stream> {
+        let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+
+        let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
+        let (user_action_tx, user_action_rx) = async_channel::unbounded();
+
+        match block_on(UdpSocket::bind(local_addr)) {
+            Ok(udp_socket) => {
+                let (send_next, receive_next) = block_on(async {
+                    UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
+                    Self::client_handshake(&udp_socket, init_seq_num).await
+                });
+
+                let join_handle = thread::Builder::new()
+                    .name("client".to_string())
+                    .spawn(move || {
+                        let mut client_connection = ClientConnection::new(
+                            udp_socket,
+                            peer_action_tx,
+                            user_action_rx,
+                            send_next,
+                            receive_next,
+                        );
+
+                        block_on(client_connection.run(timer));
+                    })
+                    .unwrap();
+                let stream = Stream {
+                    peer_action_rx,
+                    user_action_tx,
+                    join_handle: Some(join_handle),
+                    shutdown_sent: false,
+                    read_timeout: None,
+                    last_data: None,
+                };
+                Ok(stream)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn client_handshake(
+        udp_socket: &UdpSocket,
+        init_seq_num: u32,
+    ) -> (u32, u32) {
+        // Send SYN
+        let send_next = init_seq_num;
+        let syn = Segment::new_empty(Syn, send_next, 0);
+        let encoded_syn = Segment::encode(&syn);
+
+        udp_socket.send(&encoded_syn).await.unwrap();
+
+        // Receive SYN-ACK
+        let mut buf = [0; 4096];
+        let amt = udp_socket.recv(&mut buf).await.unwrap();
+
+        let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
+
+        let new_send_next = send_next + 1;
+        // TODO: Handle error instead
+        assert_eq!(new_send_next, syn_ack.ack_num());
+        assert_eq!(SynAck, syn_ack.kind());
+        assert_eq!(0, syn_ack.data().len());
+
+        let receive_next = syn_ack.seq_num() + 1;
+
+        // Send ACK
+        let ack = Segment::new_empty(Ack, new_send_next, receive_next);
+        let encoded_ack = Segment::encode(&ack);
+
+        udp_socket.send(&encoded_ack).await.unwrap();
+
+        (new_send_next, receive_next)
+    }
+
+    pub fn shutdown(&mut self) {
+        self.shutdown_sent = true;
+        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
+    }
+
+    // TODO: If no FIN received, a timeout should be used to see that
+    // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
+    // on recv channel. If timeout, return. If error closed, return.
+    pub fn wait_shutdown_complete(self) {
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
+        }
+    }
+
+    pub fn close(self) {
+        block_on(self.user_action_tx.send(UserAction::Close)).unwrap();
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
+        }
+    }
+
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        assert!(buf.len() > 0);
+        if self.shutdown_sent {
+            Err(Error::new(ErrorKind::NotConnected, "Not connected"))
+        } else {
+            block_on(
+                self.user_action_tx.send(UserAction::SendData(buf.to_vec())),
+            )
+            .unwrap();
+            Ok(buf.len())
+        }
+    }
+
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let data = match self.last_data.take() {
+            Some(data) => Ok(data),
+            None => block_on(self.read_peer_action_channel()),
+        };
+
+        match data {
+            Ok(mut data) => {
+                let data_len = data.len();
+                let len = std::cmp::min(buf.len(), data_len);
+                // TODO: Solve the horrible inefficiency
+                for i in 0..len {
+                    buf[i] = data[i];
+                }
+
+                if data_len > len {
+                    let rest = data.split_off(len);
+                    self.last_data = Some(rest);
+                }
+
+                Ok(len)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    async fn read_peer_action_channel(&mut self) -> Result<Vec<u8>> {
+        let read_future = self.peer_action_rx.recv();
+        let timeout_result = match self.read_timeout {
+            Some(duration) => future::timeout(duration, read_future).await,
+            None => Ok(read_future.await),
+        };
+        match timeout_result {
+            Ok(channel_result) => match channel_result {
+                Ok(result) => match result {
+                    PeerAction::Data(data) => Ok(data),
+                    PeerAction::EOF => Ok(Vec::new()),
+                },
+                Err(async_channel::RecvError) => {
+                    todo!()
+                }
+            },
+            Err(future::TimeoutError { .. }) => {
+                Err(Error::new(ErrorKind::WouldBlock, "Would block"))
+            }
+        }
+    }
+
+    fn set_read_timeout(&mut self, dur: Option<Duration>) {
+        self.read_timeout = dur;
+    }
+}
+
+impl Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        Stream::read(self, buf)
+    }
+}
+
 //////////////////////////////////////////////////////////////////
 // Server
 //////////////////////////////////////////////////////////////////
@@ -351,186 +531,6 @@ impl Server {
         // TODO: Only one shared socket_send_rx
 
         (connection, socket_send_rx)
-    }
-}
-
-impl Stream {
-    pub fn connect<A: ToSocketAddrs>(peer_addr: A) -> Result<Stream> {
-        // TODO: See if Arc can be removed in non-test code
-        let timer = Arc::new(PlainTimer {});
-        let init_seq_num = rand::random();
-        Self::connect_custom(timer, peer_addr, init_seq_num)
-    }
-
-    fn connect_custom<T: Timer + Send + Sync + 'static, A: ToSocketAddrs>(
-        timer: Arc<T>,
-        peer_addr: A,
-        init_seq_num: u32,
-    ) -> Result<Stream> {
-        let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-
-        let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
-        let (user_action_tx, user_action_rx) = async_channel::unbounded();
-
-        match block_on(UdpSocket::bind(local_addr)) {
-            Ok(udp_socket) => {
-                let (send_next, receive_next) = block_on(async {
-                    UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
-                    Self::client_handshake(&udp_socket, init_seq_num).await
-                });
-
-                let join_handle = thread::Builder::new()
-                    .name("client".to_string())
-                    .spawn(move || {
-                        let mut client_connection = ClientConnection::new(
-                            udp_socket,
-                            peer_action_tx,
-                            user_action_rx,
-                            send_next,
-                            receive_next,
-                        );
-
-                        block_on(client_connection.run(timer));
-                    })
-                    .unwrap();
-                let stream = Stream {
-                    peer_action_rx,
-                    user_action_tx,
-                    join_handle: Some(join_handle),
-                    shutdown_sent: false,
-                    read_timeout: None,
-                    last_data: None,
-                };
-                Ok(stream)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    async fn client_handshake(
-        udp_socket: &UdpSocket,
-        init_seq_num: u32,
-    ) -> (u32, u32) {
-        // Send SYN
-        let send_next = init_seq_num;
-        let syn = Segment::new_empty(Syn, send_next, 0);
-        let encoded_syn = Segment::encode(&syn);
-
-        udp_socket.send(&encoded_syn).await.unwrap();
-
-        // Receive SYN-ACK
-        let mut buf = [0; 4096];
-        let amt = udp_socket.recv(&mut buf).await.unwrap();
-
-        let syn_ack = Segment::decode(&buf[0..amt]).unwrap();
-
-        let new_send_next = send_next + 1;
-        // TODO: Handle error instead
-        assert_eq!(new_send_next, syn_ack.ack_num());
-        assert_eq!(SynAck, syn_ack.kind());
-        assert_eq!(0, syn_ack.data().len());
-
-        let receive_next = syn_ack.seq_num() + 1;
-
-        // Send ACK
-        let ack = Segment::new_empty(Ack, new_send_next, receive_next);
-        let encoded_ack = Segment::encode(&ack);
-
-        udp_socket.send(&encoded_ack).await.unwrap();
-
-        (new_send_next, receive_next)
-    }
-
-    pub fn shutdown(&mut self) {
-        self.shutdown_sent = true;
-        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
-    }
-
-    // TODO: If no FIN received, a timeout should be used to see that
-    // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
-    // on recv channel. If timeout, return. If error closed, return.
-    pub fn wait_shutdown_complete(self) {
-        if let Some(join_handle) = self.join_handle {
-            join_handle.join().unwrap();
-        }
-    }
-
-    pub fn close(self) {
-        block_on(self.user_action_tx.send(UserAction::Close)).unwrap();
-        if let Some(join_handle) = self.join_handle {
-            join_handle.join().unwrap();
-        }
-    }
-
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        assert!(buf.len() > 0);
-        if self.shutdown_sent {
-            Err(Error::new(ErrorKind::NotConnected, "Not connected"))
-        } else {
-            block_on(
-                self.user_action_tx.send(UserAction::SendData(buf.to_vec())),
-            )
-            .unwrap();
-            Ok(buf.len())
-        }
-    }
-
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let data = match self.last_data.take() {
-            Some(data) => Ok(data),
-            None => block_on(self.read_peer_action_channel()),
-        };
-
-        match data {
-            Ok(mut data) => {
-                let data_len = data.len();
-                let len = std::cmp::min(buf.len(), data_len);
-                // TODO: Solve the horrible inefficiency
-                for i in 0..len {
-                    buf[i] = data[i];
-                }
-
-                if data_len > len {
-                    let rest = data.split_off(len);
-                    self.last_data = Some(rest);
-                }
-
-                Ok(len)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    async fn read_peer_action_channel(&mut self) -> Result<Vec<u8>> {
-        let read_future = self.peer_action_rx.recv();
-        let timeout_result = match self.read_timeout {
-            Some(duration) => future::timeout(duration, read_future).await,
-            None => Ok(read_future.await),
-        };
-        match timeout_result {
-            Ok(channel_result) => match channel_result {
-                Ok(result) => match result {
-                    PeerAction::Data(data) => Ok(data),
-                    PeerAction::EOF => Ok(Vec::new()),
-                },
-                Err(async_channel::RecvError) => {
-                    todo!()
-                }
-            },
-            Err(future::TimeoutError { .. }) => {
-                Err(Error::new(ErrorKind::WouldBlock, "Would block"))
-            }
-        }
-    }
-
-    fn set_read_timeout(&mut self, dur: Option<Duration>) {
-        self.read_timeout = dur;
-    }
-}
-
-impl Read for Stream {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        Stream::read(self, buf)
     }
 }
 
