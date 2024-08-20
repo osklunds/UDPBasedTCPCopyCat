@@ -5,6 +5,7 @@ use async_channel::{Receiver, Sender};
 use async_std::future;
 use async_std::net::*;
 use async_trait::async_trait;
+use either::Either;
 use futures::executor::block_on;
 use futures::future::select_all;
 use futures::lock::{Mutex, MutexGuard};
@@ -17,7 +18,6 @@ use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use either::Either;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
@@ -393,7 +393,14 @@ impl Server {
 
                     match self.handle_received_segment(segment, recv_addr).await
                     {
-                        (true, Some((mut connection, socket_send_rx, shutdown_complete_tx))) => {
+                        (
+                            true,
+                            Some((
+                                mut connection,
+                                socket_send_rx,
+                                shutdown_complete_tx,
+                            )),
+                        ) => {
                             futures.push(Box::pin(async move {
                                 let timer = Arc::new(PlainTimer {});
                                 connection.run(timer).await;
@@ -416,7 +423,7 @@ impl Server {
                                 }
                             }));
                         }
-                        (true, None) => {},
+                        (true, None) => {}
                         (false, _) => {
                             return;
                         }
@@ -464,7 +471,10 @@ impl Server {
         segment: Segment,
         recv_addr: SocketAddr,
         // TODO: Make return look better
-    ) -> (bool, Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>)>) {
+    ) -> (
+        bool,
+        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>)>,
+    ) {
         // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
             Syn => (true, Some(self.handle_syn(segment, recv_addr).await)),
@@ -506,7 +516,8 @@ impl Server {
         let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
-        let (shutdown_complete_tx, shutdown_complete_rx) = async_channel::bounded(1);
+        let (shutdown_complete_tx, shutdown_complete_rx) =
+            async_channel::bounded(1);
 
         let connection = Connection::new(
             socket_send_tx,
@@ -622,7 +633,6 @@ impl ClientConnection {
                 },
 
                 _ = future_connection => {
-                    // println!("\n\n  {:?}   \n\n\n\n", "returned");
                     return;
                 }
             }
@@ -718,11 +728,6 @@ impl Connection {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
                     if !self.handle_received_segment(segment.unwrap()).await {
-                        // TODO: This sleep is needed because once FIN from tc
-                        // received, Connection returns. But still need
-                        // to schedule the send of the ACK to that FIN.
-                        async_std::task::sleep(Duration::from_millis(1)).await;
-                        // Note: also needed for server tests
                         return;
                     }
                 },
@@ -750,7 +755,12 @@ impl Connection {
                 self.timer_running = true;
             }
 
-            if self.send_buffer.is_empty() && self.fin_sent && self.fin_received {
+            if self.send_buffer.is_empty() && self.fin_sent && self.fin_received
+            {
+                // TODO: This sleep is needed because once FIN from tc
+                // received, Connection returns. But still need
+                // to schedule the send of the ACK to that FIN.
+                async_std::task::sleep(Duration::from_millis(1)).await;
                 return;
             }
         }
@@ -892,9 +902,8 @@ impl Connection {
 
                 self.send_segment(&seg).await;
 
-                // TODO: More sophisticed "FIN lost" handling might be needed
                 self.send_next += 1;
-                // self.send_buffer.push(seg);
+                self.send_buffer.push(seg);
 
                 self.fin_sent = true;
             }

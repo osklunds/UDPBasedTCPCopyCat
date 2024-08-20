@@ -227,7 +227,7 @@ fn explicit_sequence_numbers_two_clients() {
     assert_eq!(exp_seg_write1_client2, seg_write1_client2);
 
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1004);
-    send_segment_to(&client1_socket, server_addr, &ack_seg_write1);
+    send_segment_to(&client2_socket, server_addr, &ack_seg_write1);
 
     // println!("write1 client2 done");
 
@@ -285,6 +285,8 @@ fn explicit_sequence_numbers_two_clients() {
 
     uut_stream1.wait_shutdown_complete();
 
+    // println!("{:?}", "client1 shutdown done");
+
     //////////////////////////////////////////////////////////////////
     // Client2: Shutdown from tc
     //////////////////////////////////////////////////////////////////
@@ -307,11 +309,11 @@ fn explicit_sequence_numbers_two_clients() {
     assert_eq!(exp_fin, fin_from_uut);
 
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 3002, 1005);
-    send_segment_to(&client1_socket, server_addr, &ack_to_fin_from_uut);
+    send_segment_to(&client2_socket, server_addr, &ack_to_fin_from_uut);
 
     uut_stream2.wait_shutdown_complete();
 
-    // println!("{:?}", "done");
+    // println!("{:?}", "client2 shutdown done");
 
     listener.shutdown_all();
     listener.wait_shutdown_complete();
@@ -375,11 +377,11 @@ fn interleaved_reads_and_write_from_multiple_clients() {
     // Random interleaved reads and writes
     uut_write(&mut stream_state1, b"1");
     uut_write(&mut stream_state2, b"2");
-    uut_read(&mut stream_state3, b"3"); 
-    send_tc_ack(&mut stream_state2);    
-    uut_read(&mut stream_state2, b"4"); 
+    uut_read(&mut stream_state3, b"3");
+    send_tc_ack(&mut stream_state2);
+    uut_read(&mut stream_state2, b"4");
     uut_write(&mut stream_state2, b"5");
-    send_tc_ack(&mut stream_state1);    
+    send_tc_ack(&mut stream_state1);
     send_tc_ack(&mut stream_state2);
 
     // For both streams, the server- and client-sides, respectivly,
@@ -387,11 +389,11 @@ fn interleaved_reads_and_write_from_multiple_clients() {
     // on the wire.
     uut_write(&mut stream_state1, b"a");
     uut_write(&mut stream_state2, b"b");
-    uut_read(&mut stream_state1, b"c"); 
-    uut_read(&mut stream_state2, b"d"); 
+    uut_read(&mut stream_state1, b"c");
+    uut_read(&mut stream_state2, b"d");
     uut_write(&mut stream_state1, b"e");
     uut_write(&mut stream_state2, b"f");
-    send_tc_ack(&mut stream_state1);    
+    send_tc_ack(&mut stream_state1);
     send_tc_ack(&mut stream_state2);
 
     shutdown(stream_state1);
@@ -533,32 +535,52 @@ fn uut_read(stream_state: &mut StreamState, data: &[u8]) {
 fn shutdown(mut stream_state: StreamState) {
     uut_shutdown_with_tc_ack__tc_still_connected(&mut stream_state);
     tc_shutdown(&mut stream_state);
-    stream_state.uut_stream.take().unwrap().wait_shutdown_complete();
+    stream_state
+        .uut_stream
+        .take()
+        .unwrap()
+        .wait_shutdown_complete();
 }
 
-fn uut_shutdown_with_tc_ack__tc_still_connected(stream_state: &mut StreamState) {
+fn uut_shutdown_with_tc_ack__tc_still_connected(
+    stream_state: &mut StreamState,
+) {
     // Shutdown from the uut
     uut_stream(stream_state).shutdown();
 
     // Recv FIN from the uut
-    let exp_fin = Segment::new_empty(Fin, stream_state.send_next, stream_state.receive_next);
+    let exp_fin = Segment::new_empty(
+        Fin,
+        stream_state.send_next,
+        stream_state.receive_next,
+    );
     recv__expect_segment(&stream_state, &exp_fin);
     stream_state.send_next += 1;
 
-    let ack_to_fin =
-        Segment::new_empty(Ack, stream_state.receive_next, stream_state.send_next);
+    let ack_to_fin = Segment::new_empty(
+        Ack,
+        stream_state.receive_next,
+        stream_state.send_next,
+    );
     send_segment(&stream_state, &ack_to_fin);
 }
 
 fn tc_shutdown(stream_state: &mut StreamState) {
     // tc sends FIN
-    let send_seg = Segment::new_empty(Fin, stream_state.receive_next, stream_state.send_next);
+    let send_seg = Segment::new_empty(
+        Fin,
+        stream_state.receive_next,
+        stream_state.send_next,
+    );
     send_segment(&stream_state, &send_seg);
     stream_state.receive_next += 1;
 
     // uut sends ACK to the FIN
-    let exp_ack_to_fin =
-        Segment::new_empty(Ack, stream_state.send_next, stream_state.receive_next);
+    let exp_ack_to_fin = Segment::new_empty(
+        Ack,
+        stream_state.send_next,
+        stream_state.receive_next,
+    );
     recv__expect_segment(&stream_state, &exp_ack_to_fin);
 }
 
