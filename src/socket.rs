@@ -93,6 +93,7 @@ enum PeerAction {
     EOF,
 }
 
+#[derive(Debug)]
 enum UserAction {
     SendData(Vec<u8>),
     Shutdown,
@@ -148,6 +149,7 @@ impl Listener {
     }
 }
 
+#[derive(Debug)]
 enum ServerSelectResult {
     RecvSocket(Segment, SocketAddr),
     RecvUserAction(Option<UserAction>),
@@ -156,7 +158,7 @@ enum ServerSelectResult {
 struct Server {
     udp_socket: Arc<UdpSocket>,
     accept_tx: Sender<(ClientStream, SocketAddr)>,
-    connections: BTreeMap<SocketAddr, ServerConnection>,
+    connections: BTreeMap<SocketAddr, Sender<Segment>>,
 }
 
 struct ServerConnection {
@@ -182,21 +184,48 @@ impl Server {
         udp_socket: Arc<UdpSocket>,
         user_action_rx: &Receiver<UserAction>,
     ) {
-        loop {
-            let future_recv_socket = Box::pin(Self::recv_socket(&udp_socket));
-            let future_recv_user_action =
-                Box::pin(Self::recv_user_action(user_action_rx));
+        let future_recv_socket = Box::pin(Self::recv_socket(&udp_socket));
+        let future_recv_user_action =
+            Box::pin(Self::recv_user_action(user_action_rx));
 
-            let futures: Vec<
+        let mut futures: Vec<
                 Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
             > = vec![future_recv_socket, future_recv_user_action];
 
-            let (result, _index, _rest) = select_all(futures).await;
+        loop {
+            let (result, _index, rest) = select_all(futures).await;
+            futures = rest;
+
             match result {
                 ServerSelectResult::RecvSocket(segment, recv_addr) => {
-                    self.handle_received_segment(segment, recv_addr).await;
+                    futures.push(Box::pin(Self::recv_socket(&udp_socket)));
+
+                    match self.handle_received_segment(segment, recv_addr).await {
+                        Some((mut connection, socket_send_rx)) => {
+                            futures.push(Box::pin(async move {
+                                let timer = Arc::new(PlainTimer {});
+                                connection.run(timer).await;
+                                println!("\n\n  {:?}   \n\n\n\n", "run ret");
+                                ServerSelectResult::RecvUserAction(None)
+                            }));
+
+                            let udp_socket2 = Arc::clone(&udp_socket);
+                            futures.push(Box::pin(async move {
+                                loop {
+                                    let segment = socket_send_rx.recv().await.unwrap();
+                                    udp_socket2.send(&segment.encode()).await.unwrap();
+                                }
+                                // ServerSelectResult::RecvUserAction(None)
+                            }));
+                        },
+                        None => {
+                            println!("\n\n  {:?}   \n\n\n\n", "non syn");
+                        }
+                    }
                 }
-                _ => {}
+                _x => {
+                    // println!("\n\n  {:?}   \n\n\n\n", x);
+                }
             }
         }
     }
@@ -224,12 +253,17 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> bool {
+    ) -> Option<(Connection, Receiver<Segment>)> {
         println!("{:?} segment \n\n\n\n", segment);
         println!("accept called");
         match segment.kind() {
-            Syn => self.handle_syn(segment, recv_addr).await,
-            _ => true,
+            Syn => Some(self.handle_syn(segment, recv_addr).await),
+            _ => {
+                let socket_receive_tx = self.connections.get(&recv_addr).unwrap();
+                println!("\n\n  {:?}   \n\n\n\n", socket_receive_tx.is_closed());
+                socket_receive_tx.send(segment).await.unwrap();
+                None
+            }
         }
     }
 
@@ -237,14 +271,16 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> bool {
-        let mut send_next = rand::random();
+    ) -> (Connection, Receiver<Segment>) {
+        // let mut send_next = rand::random();
+        let mut send_next = 1000; // TODO: Control this a better way
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
         send_next += 1;
 
         let encoded_syn_ack = Segment::encode(&syn_ack);
 
+        UdpSocket::connect(&self.udp_socket, recv_addr).await.unwrap();
         self.udp_socket
             .send_to(&encoded_syn_ack, recv_addr)
             .await
@@ -269,12 +305,6 @@ impl Server {
             receive_next,
         );
 
-        let server_connection = ServerConnection {
-            connection,
-            socket_send_rx,
-            socket_receive_tx,
-        };
-
         let server_stream = ClientStream {
             peer_action_rx,
             user_action_tx,
@@ -282,16 +312,17 @@ impl Server {
             shutdown_sent: false,
             read_timeout: None,
             last_data: None,
-            
         };
 
-        assert!(self.connections.insert(recv_addr, server_connection).is_none());
+        println!("\n\n  {:?}   \n\n\n\n", socket_receive_tx.is_closed());
+        assert!(self.connections.insert(recv_addr, socket_receive_tx).is_none());
 
         self.accept_tx.send((server_stream, recv_addr)).await.unwrap();
 
         // TODO: Handle duplicate syn etc
+        // TODO: Only one shared socket_send_rx
 
-        true
+        (connection, socket_send_rx)
     }
 }
 
@@ -696,6 +727,8 @@ impl Connection {
             future_recv_user_action,
             future_timeout
         );
+
+        println!("\n\n  {:?}   \n\n\n\n", "loop");
 
         loop {
             select! {
