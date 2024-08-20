@@ -751,7 +751,8 @@ impl Connection {
                         // TODO: This sleep is needed because once FIN from tc
                         // received, Connection returns. But still need
                         // to schedule the send of the ACK to that FIN.
-                        async_std::task::sleep(Duration::from_millis(1)).await;
+                        // async_std::task::sleep(Duration::from_millis(1)).await;
+                        // Note: also needed for server tests
                         return;
                     }
                 },
