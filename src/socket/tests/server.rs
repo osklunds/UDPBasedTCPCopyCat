@@ -317,7 +317,6 @@ fn mf_explicit_sequence_numbers_two_clients() {
 
     // std::thread::sleep(Duration::from_millis(10000));
 
-
     ()
 }
 

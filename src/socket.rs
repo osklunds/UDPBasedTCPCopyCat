@@ -211,9 +211,15 @@ impl Server {
                             let udp_socket2 = Arc::clone(&udp_socket);
                             futures.push(Box::pin(async move {
                                 loop {
-                                    let (segment, to) = socket_send_rx.recv().await.unwrap();
-                                    udp_socket2.send_to(&segment.encode(),
+                                    match socket_send_rx.recv().await {
+                                        Ok((segment, to)) => {
+                                            udp_socket2.send_to(&segment.encode(),
                                                         to).await.unwrap();
+                                        },
+                                        Err(_) => {
+                                            return ServerSelectResult::RecvUserAction(None)
+                                        }
+                                    }
                                 }
                             }));
                         },
