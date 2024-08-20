@@ -100,7 +100,7 @@ enum UserAction {
     Accept,
 }
 
-struct BindCustomData<T> {
+struct CustomAcceptData<T> {
     timer: T,
     init_seq_num: u32,
 }
@@ -110,9 +110,9 @@ impl Listener {
         Self::bind_custom::<A, PlainTimer>(local_addr, None)
     }
 
-    fn bind_custom<A: ToSocketAddrs, T: Timer>(
+    fn bind_custom<A: ToSocketAddrs, T: Timer + Send + 'static>(
         local_addr: A,
-        _custom_data: Option<Vec<BindCustomData<T>>>,
+        custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     ) -> Result<Listener> {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
@@ -128,7 +128,9 @@ impl Listener {
                     .name("server".to_string())
                     .spawn(move || {
                         let mut server =
-                            Server::new(Arc::clone(&udp_socket), accept_tx);
+                            Server::new(Arc::clone(&udp_socket),
+                                        accept_tx,
+                                        custom_accept_data);
 
                         block_on(server.server_loop(
                             Arc::clone(&udp_socket),
@@ -358,9 +360,10 @@ impl Read for Stream {
 // Server
 //////////////////////////////////////////////////////////////////
 
-struct Server {
+struct Server<T> {
     udp_socket: Arc<UdpSocket>,
     accept_tx: Sender<(Stream, SocketAddr)>,
+    custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     connections: BTreeMap<SocketAddr, Sender<Segment>>,
 }
 
@@ -370,14 +373,16 @@ struct ServerConnection {
     pub socket_receive_tx: Sender<Segment>,
 }
 
-impl Server {
+impl<T: Timer> Server<T> {
     pub fn new(
         udp_socket: Arc<UdpSocket>,
         accept_tx: Sender<(Stream, SocketAddr)>,
+        custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     ) -> Self {
         Self {
             udp_socket,
             accept_tx,
+            custom_accept_data,
             connections: BTreeMap::new(),
         }
     }
@@ -391,6 +396,7 @@ impl Server {
         let future_recv_user_action =
             Box::pin(Self::recv_user_action(user_action_rx));
 
+        // TODO: Garbage collect old futures
         let mut futures: Vec<
             Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
         > = vec![future_recv_socket, future_recv_user_action];
