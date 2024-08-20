@@ -5,6 +5,7 @@ use async_channel::{Receiver, Sender};
 use async_std::future;
 use async_std::net::*;
 use async_trait::async_trait;
+use either::Either;
 use futures::executor::block_on;
 use futures::future::select_all;
 use futures::lock::{Mutex, MutexGuard};
@@ -20,7 +21,6 @@ use std::time::Duration;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
-
 
 //////////////////////////////////////////////////////////////////
 // Constants
@@ -75,7 +75,7 @@ pub struct Listener {
 pub struct Stream {
     peer_action_rx: Receiver<PeerAction>,
     user_action_tx: Sender<UserAction>,
-    join_handle: Option<JoinHandle<()>>,
+    shutdown_complete: Either<JoinHandle<()>, Receiver<()>>,
     shutdown_sent: bool,
     read_timeout: Option<Duration>,
     last_data: Option<Vec<u8>>,
@@ -100,8 +100,20 @@ enum UserAction {
     Accept,
 }
 
+struct CustomAcceptData<T> {
+    timer: T,
+    init_seq_num: u32,
+}
+
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
+        Self::bind_custom::<A, PlainTimer>(local_addr, None)
+    }
+
+    fn bind_custom<A: ToSocketAddrs, T: Timer + Send + 'static>(
+        local_addr: A,
+        custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
+    ) -> Result<Listener> {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 // println!("Listener started");
@@ -116,7 +128,9 @@ impl Listener {
                     .name("server".to_string())
                     .spawn(move || {
                         let mut server =
-                            Server::new(Arc::clone(&udp_socket), accept_tx);
+                            Server::new(Arc::clone(&udp_socket),
+                                        accept_tx,
+                                        custom_accept_data);
 
                         block_on(server.server_loop(
                             Arc::clone(&udp_socket),
@@ -203,7 +217,7 @@ impl Stream {
                 let stream = Stream {
                     peer_action_rx,
                     user_action_tx,
-                    join_handle: Some(join_handle),
+                    shutdown_complete: Either::Left(join_handle),
                     shutdown_sent: false,
                     read_timeout: None,
                     last_data: None,
@@ -257,17 +271,17 @@ impl Stream {
     // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
     // on recv channel. If timeout, return. If error closed, return.
     pub fn wait_shutdown_complete(self) {
-        // TODO: Add channel for server
-        if let Some(join_handle) = self.join_handle {
-            join_handle.join().unwrap();
+        match self.shutdown_complete {
+            Either::Left(join_handle) => join_handle.join().unwrap(),
+            Either::Right(shutdown_complete_rx) => {
+                block_on(shutdown_complete_rx.recv()).unwrap()
+            }
         }
     }
 
     pub fn close(self) {
         block_on(self.user_action_tx.send(UserAction::Close)).unwrap();
-        if let Some(join_handle) = self.join_handle {
-            join_handle.join().unwrap();
-        }
+        self.wait_shutdown_complete();
     }
 
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
@@ -346,9 +360,10 @@ impl Read for Stream {
 // Server
 //////////////////////////////////////////////////////////////////
 
-struct Server {
+struct Server<T> {
     udp_socket: Arc<UdpSocket>,
     accept_tx: Sender<(Stream, SocketAddr)>,
+    custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     connections: BTreeMap<SocketAddr, Sender<Segment>>,
 }
 
@@ -358,14 +373,16 @@ struct ServerConnection {
     pub socket_receive_tx: Sender<Segment>,
 }
 
-impl Server {
+impl<T: Timer> Server<T> {
     pub fn new(
         udp_socket: Arc<UdpSocket>,
         accept_tx: Sender<(Stream, SocketAddr)>,
+        custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     ) -> Self {
         Self {
             udp_socket,
             accept_tx,
+            custom_accept_data,
             connections: BTreeMap::new(),
         }
     }
@@ -379,6 +396,7 @@ impl Server {
         let future_recv_user_action =
             Box::pin(Self::recv_user_action(user_action_rx));
 
+        // TODO: Garbage collect old futures
         let mut futures: Vec<
             Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
         > = vec![future_recv_socket, future_recv_user_action];
@@ -393,10 +411,18 @@ impl Server {
 
                     match self.handle_received_segment(segment, recv_addr).await
                     {
-                        Some((mut connection, socket_send_rx)) => {
+                        (
+                            true,
+                            Some((
+                                mut connection,
+                                socket_send_rx,
+                                shutdown_complete_tx,
+                            )),
+                        ) => {
                             futures.push(Box::pin(async move {
                                 let timer = Arc::new(PlainTimer {});
                                 connection.run(timer).await;
+                                shutdown_complete_tx.send(()).await.unwrap();
                                 ServerSelectResult::RecvUserAction(None)
                             }));
 
@@ -415,7 +441,10 @@ impl Server {
                                 }
                             }));
                         }
-                        None => {}
+                        (true, None) => {}
+                        (false, _) => {
+                            return;
+                        }
                     }
                 }
                 ServerSelectResult::RecvUserAction(user_action) => {
@@ -459,15 +488,21 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> Option<(Connection, Receiver<(Segment, SocketAddr)>)> {
+        // TODO: Make return look better
+    ) -> (
+        bool,
+        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>)>,
+    ) {
         // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
-            Syn => Some(self.handle_syn(segment, recv_addr).await),
+            Syn => (true, Some(self.handle_syn(segment, recv_addr).await)),
             _ => {
                 let socket_receive_tx =
                     self.connections.get(&recv_addr).unwrap();
-                socket_receive_tx.send(segment).await.unwrap();
-                None
+                match socket_receive_tx.send(segment).await {
+                    Ok(_) => (true, None),
+                    Err(_) => (false, None),
+                }
             }
         }
     }
@@ -476,10 +511,19 @@ impl Server {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> (Connection, Receiver<(Segment, SocketAddr)>) {
-        // let mut send_next = rand::random();
+    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>) {
         // println!("{:?}", "handle syn");
-        let mut send_next = 1000; // TODO: Control this a better way
+
+        let mut send_next = match &mut self.custom_accept_data {
+            None => {
+                rand::random()
+            },
+            Some(custom_accept_data) => {
+                let data = custom_accept_data.remove(0);
+                data.init_seq_num
+            }
+        };
+
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
         send_next += 1;
@@ -499,6 +543,9 @@ impl Server {
         let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
+        let (shutdown_complete_tx, shutdown_complete_rx) =
+            async_channel::bounded(1);
+
         let connection = Connection::new(
             socket_send_tx,
             socket_receive_rx,
@@ -512,7 +559,7 @@ impl Server {
         let server_stream = Stream {
             peer_action_rx,
             user_action_tx,
-            join_handle: None,
+            shutdown_complete: Either::Right(shutdown_complete_rx),
             shutdown_sent: false,
             read_timeout: None,
             last_data: None,
@@ -531,7 +578,7 @@ impl Server {
         // TODO: Handle duplicate syn etc
         // TODO: Only one shared socket_send_rx
 
-        (connection, socket_send_rx)
+        (connection, socket_send_rx, shutdown_complete_tx)
     }
 }
 
@@ -613,7 +660,6 @@ impl ClientConnection {
                 },
 
                 _ = future_connection => {
-                    // println!("\n\n  {:?}   \n\n\n\n", "returned");
                     return;
                 }
             }
@@ -709,11 +755,6 @@ impl Connection {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
                     if !self.handle_received_segment(segment.unwrap()).await {
-                        // TODO: This sleep is needed because once FIN from tc
-                        // received, Connection returns. But still need
-                        // to schedule the send of the ACK to that FIN.
-                        async_std::task::sleep(Duration::from_millis(1)).await;
-                        // Note: also needed for server tests
                         return;
                     }
                 },
@@ -740,10 +781,20 @@ impl Connection {
                 future_timeout.set(Self::timeout(&timer, false).fuse());
                 self.timer_running = true;
             }
+
+            if self.send_buffer.is_empty() && self.fin_sent && self.fin_received
+            {
+                // TODO: This sleep is needed because once FIN from tc
+                // received, Connection returns. But still need
+                // to schedule the send of the ACK to that FIN.
+                async_std::task::sleep(Duration::from_millis(1)).await;
+                return;
+            }
         }
     }
 
     async fn handle_received_segment(&mut self, segment: Segment) -> bool {
+        // println!("handle {:?}", segment);
         let ack_num = segment.ack_num();
         let seq_num = segment.seq_num();
         let len = segment.data().len() as u32;
@@ -778,14 +829,7 @@ impl Connection {
             self.send_ack().await;
         }
 
-        let shutdown_complete =
-            self.send_buffer.is_empty() && self.fin_sent && self.fin_received;
-
-        if shutdown_complete || channel_closed {
-            false
-        } else {
-            true
-        }
+        !channel_closed
     }
 
     fn removed_acked_segments(&mut self, ack_num: u32) {
