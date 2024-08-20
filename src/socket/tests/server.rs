@@ -11,7 +11,7 @@ use self::mock_timer::MockTimer;
 use crate::segment::Segment;
 
 #[test]
-fn explicit_sequence_numbers() {
+fn explicit_sequence_numbers_one_client() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
@@ -273,7 +273,7 @@ fn explicit_sequence_numbers_two_clients() {
     send_segment_to(&client1_socket, server_addr, &ack_to_fin_from_uut);
 
     //////////////////////////////////////////////////////////////////
-    // Client2: Shutdown from tc
+    // Client1: Shutdown from tc
     //////////////////////////////////////////////////////////////////
 
     let fin_from_tc = Segment::new_empty(Fin, 2015, 1011);
