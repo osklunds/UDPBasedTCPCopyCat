@@ -12,60 +12,57 @@ use crate::segment::Segment;
 
 #[test]
 fn mf_explicit_sequence_numbers() {
-    let initial_uut_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let listener = Listener::bind(initial_uut_addr).unwrap();
-    let uut_addr = listener.local_addr().unwrap();
-
-    let accept_thread = thread::spawn(move || {
-        // println!("{:?}", "tc: start accept");
-        let uut_stream = listener.accept().unwrap();
-        // println!("{:?}", "tc: accept done");
-        uut_stream
-    });
+    let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+    let mut listener = Listener::bind(initial_addr).unwrap();
+    let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
     // Connect
     //////////////////////////////////////////////////////////////////
 
-    let initial_tc_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let tc_socket = UdpSocket::bind(initial_tc_addr).unwrap();
-    let tc_addr = tc_socket.local_addr().unwrap();
-    assert_ne!(tc_addr, uut_addr);
+    let connect_client_thread = thread::spawn(move || {
+        let client_socket = UdpSocket::bind(initial_addr).unwrap();
+        let tc_addr = client_socket.local_addr().unwrap();
+        assert_ne!(tc_addr, server_addr);
 
-    UdpSocket::connect(&tc_socket, uut_addr).unwrap();
+        UdpSocket::connect(&client_socket, server_addr).unwrap();
 
-    // Send SYN
-    let syn = Segment::new_empty(Syn, 2000, 0);
-    send_segment_to(&tc_socket, uut_addr, &syn);
+        // Send SYN
+        let syn = Segment::new_empty(Syn, 2000, 0);
+        send_segment_to(&client_socket, server_addr, &syn);
 
-    // Receive SYN-ACK
-    let syn_ack = recv_segment_from(&tc_socket, uut_addr);
+        // Receive SYN-ACK
+        let syn_ack = recv_segment_from(&client_socket, server_addr);
 
-    // TODO: 1000 is hard coded. Need to change
-    let exp_syn_ack = Segment::new_empty(SynAck, 1000, 2001);
-    assert_eq!(exp_syn_ack, syn_ack);
+        // TODO: 1000 is hard coded. Need to change
+        let exp_syn_ack = Segment::new_empty(SynAck, 1000, 2001);
+        assert_eq!(exp_syn_ack, syn_ack);
 
-    // Send ACK
-    let ack = Segment::new_empty(Ack, 2001, 1001);
-    send_segment_to(&tc_socket, uut_addr, &ack);
+        // Send ACK
+        let ack = Segment::new_empty(Ack, 2001, 1001);
+        send_segment_to(&client_socket, server_addr, &ack);
 
-    let (mut uut_stream, client_addr) = accept_thread.join().unwrap();
-    assert_eq!(tc_addr, client_addr);
+        // println!("{:?}", "tc: connect done");
 
-    // println!("{:?}", "tc: connect done");
+        client_socket
+    });
+
+    let (mut uut_stream, client_addr) = listener.accept().unwrap();
+    let client_socket = connect_client_thread.join().unwrap();
+    assert_eq!(client_addr, client_socket.local_addr().unwrap());
 
     //////////////////////////////////////////////////////////////////
     // Write #1
     //////////////////////////////////////////////////////////////////
 
-    uut_stream.write(b"hello").unwrap();
+        uut_stream.write(b"hello").unwrap();
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
-    let seg_write1 = recv_segment_from(&tc_socket, uut_addr);
+    let seg_write1 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write1, seg_write1);
 
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
-    send_segment_to(&tc_socket, uut_addr, &ack_seg_write1);
+    send_segment_to(&client_socket, server_addr, &ack_seg_write1);
 
     // println!("write1 done");
 
@@ -76,11 +73,11 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.write(b"more").unwrap();
 
     let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
-    let seg_write2 = recv_segment_from(&tc_socket, uut_addr);
+    let seg_write2 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write2, seg_write2);
 
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
-    send_segment_to(&tc_socket, uut_addr, &ack_seg_write2);
+    send_segment_to(&client_socket, server_addr, &ack_seg_write2);
 
     // println!("write2 done");
     
@@ -89,10 +86,10 @@ fn mf_explicit_sequence_numbers() {
     //////////////////////////////////////////////////////////////////
 
     let seg_read1 = Segment::new(Ack, 2001, 1010, b"From test case");
-    send_segment_to(&tc_socket, uut_addr, &seg_read1);
+    send_segment_to(&client_socket, server_addr, &seg_read1);
 
     let exp_ack_read1 = Segment::new_empty(Ack, 1010, 2015);
-    let ack_read1 = recv_segment_from(&tc_socket, uut_addr);
+    let ack_read1 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_ack_read1, ack_read1);
 
     // println!("read done");
@@ -104,26 +101,29 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.shutdown();
 
     let exp_fin = Segment::new_empty(Fin, 1010, 2015);
-    let fin_from_uut = recv_segment_from(&tc_socket, uut_addr);
+    let fin_from_uut = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
-    send_segment_to(&tc_socket, uut_addr, &ack_to_fin_from_uut);
+    send_segment_to(&client_socket, server_addr, &ack_to_fin_from_uut);
 
     //////////////////////////////////////////////////////////////////
     // Shutdown from tc
     //////////////////////////////////////////////////////////////////
 
     let fin_from_tc = Segment::new_empty(Fin, 2015, 1011);
-    send_segment_to(&tc_socket, uut_addr, &fin_from_tc);
+    send_segment_to(&client_socket, server_addr, &fin_from_tc);
 
     let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1011, 2016);
-    let ack_to_fin_from_tc = recv_segment_from(&tc_socket, uut_addr);
+    let ack_to_fin_from_tc = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
 
     uut_stream.wait_shutdown_complete();
 
     // println!("{:?}", "done");
+
+    listener.shutdown_all();
+    listener.wait_shutdown_complete();
 }
 
 #[test]
