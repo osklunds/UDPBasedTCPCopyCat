@@ -69,28 +69,84 @@ fn mf_explicit_sequence_numbers() {
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&client_socket, server_addr, &ack_seg_write1);
 
+    println!("write1 done");
+
+    //////////////////////////////////////////////////////////////////
+    // Write #2
+    //////////////////////////////////////////////////////////////////
+
+    server_socket.write(b"more").unwrap();
+
+    let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
+    let seg_write2 = recv_segment_from(&client_socket, server_addr);
+    assert_eq!(exp_seg_write2, seg_write2);
+
+    let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
+    send_segment_to(&client_socket, server_addr, &ack_seg_write2);
+
+    println!("write2 done");
+    
+    //////////////////////////////////////////////////////////////////
+    // Read
+    //////////////////////////////////////////////////////////////////
+
+    let seg_read1 = Segment::new(Ack, 2001, 1010, b"From test case");
+    send_segment_to(&client_socket, server_addr, &seg_read1);
+
+    let exp_ack_read1 = Segment::new_empty(Ack, 1010, 2015);
+    let ack_read1 = recv_segment_from(&client_socket, server_addr);
+    assert_eq!(exp_ack_read1, ack_read1);
+
+    println!("read done");
+
+    //////////////////////////////////////////////////////////////////
+    // Shutdown from uut
+    //////////////////////////////////////////////////////////////////
+
+    server_socket.shutdown();
+
+    let exp_fin = Segment::new_empty(Fin, 1010, 2015);
+    let fin_from_uut = recv_segment_from(&client_socket, server_addr);
+    assert_eq!(exp_fin, fin_from_uut);
+
+    let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
+    send_segment_to(&client_socket, server_addr, &ack_to_fin_from_uut);
+
+    //////////////////////////////////////////////////////////////////
+    // Shutdown from tc
+    //////////////////////////////////////////////////////////////////
+
+    let fin_from_tc = Segment::new_empty(Fin, 2015, 1011);
+    send_segment_to(&client_socket, server_addr, &fin_from_tc);
+
+    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1011, 2016);
+    let ack_to_fin_from_tc = recv_segment_from(&client_socket, server_addr);
+    assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
+
+    server_socket.wait_shutdown_complete();
+
     println!("{:?}", "done");
 
     ()
 }
 
-fn recv_segment_from(tc_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
-    let (seg, recv_addr) = recv_segment_with_addr(tc_socket);
+fn recv_segment_from(client_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
+    let (seg, recv_addr) = recv_segment_with_addr(client_socket);
     assert_eq!(uut_addr, recv_addr);
     seg
 }
 
-fn recv_segment_with_addr(tc_socket: &UdpSocket) -> (Segment, SocketAddr) {
+fn recv_segment_with_addr(client_socket: &UdpSocket) -> (Segment, SocketAddr) {
     let mut buf = [0; 4096];
-    let (amt, recv_addr) = tc_socket.recv_from(&mut buf).unwrap();
+    let (amt, recv_addr) = client_socket.recv_from(&mut buf).unwrap();
     (Segment::decode(&buf[0..amt]).unwrap(), recv_addr)
 }
 
 fn send_segment_to(
-    tc_socket: &UdpSocket,
+    client_socket: &UdpSocket,
     uut_addr: SocketAddr,
     segment: &Segment,
 ) {
     let encoded_seq = segment.encode();
-    tc_socket.send_to(&encoded_seq, uut_addr).unwrap();
+    client_socket.send_to(&encoded_seq, uut_addr).unwrap();
 }

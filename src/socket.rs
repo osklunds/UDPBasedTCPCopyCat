@@ -205,7 +205,7 @@ impl Server {
                             futures.push(Box::pin(async move {
                                 let timer = Arc::new(PlainTimer {});
                                 connection.run(timer).await;
-                                println!("\n\n  {:?}   \n\n\n\n", "run ret");
+                                // println!("\n\n  {:?}   \n\n\n\n", "run ret");
                                 ServerSelectResult::RecvUserAction(None)
                             }));
 
@@ -255,7 +255,6 @@ impl Server {
         recv_addr: SocketAddr,
     ) -> Option<(Connection, Receiver<Segment>)> {
         println!("{:?} segment \n\n\n\n", segment);
-        println!("accept called");
         match segment.kind() {
             Syn => Some(self.handle_syn(segment, recv_addr).await),
             _ => {
