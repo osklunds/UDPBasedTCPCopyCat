@@ -257,6 +257,7 @@ impl Stream {
     // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
     // on recv channel. If timeout, return. If error closed, return.
     pub fn wait_shutdown_complete(self) {
+        // TODO: Add channel for server
         if let Some(join_handle) = self.join_handle {
             join_handle.join().unwrap();
         }
