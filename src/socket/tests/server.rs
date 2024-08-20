@@ -332,6 +332,27 @@ fn mf_reads_and_writes() {
     uut_read(&mut stream_state, b"some data to read");
 }
 
+#[test]
+fn mf_reads_and_writes_multiple_clients() {
+    let listener_state = uut_listen();
+    // TODO: Interleaved accepts/reads/writes in other TC
+    let mut stream_state1 = uut_accept(&listener_state);
+    let mut stream_state2 = uut_accept(&listener_state);
+    let mut stream_state3 = uut_accept(&listener_state);
+
+    uut_write_with_tc_ack(&mut stream_state1, b"one");
+    uut_write_with_tc_ack(&mut stream_state2, b"two");
+    uut_write_with_tc_ack(&mut stream_state3, b"three");
+
+    uut_read(&mut stream_state1, b"ett");
+    uut_read(&mut stream_state2, b"tva");
+    uut_read(&mut stream_state3, b"tre");
+
+    uut_write_with_tc_ack(&mut stream_state3, b"hello");
+    uut_write_with_tc_ack(&mut stream_state2, b"hej spam spam spam");
+    uut_read(&mut stream_state1, b"data to read");
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
