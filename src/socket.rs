@@ -269,6 +269,7 @@ impl Server {
         recv_addr: SocketAddr,
     ) -> (Connection, Receiver<Segment>) {
         // let mut send_next = rand::random();
+        println!("{:?}", "handle syn");
         let mut send_next = 1000; // TODO: Control this a better way
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
@@ -276,7 +277,8 @@ impl Server {
 
         let encoded_syn_ack = Segment::encode(&syn_ack);
 
-        UdpSocket::connect(&self.udp_socket, recv_addr).await.unwrap();
+
+        // UdpSocket::connect(&self.udp_socket, recv_addr).await.unwrap();
         self.udp_socket
             .send_to(&encoded_syn_ack, recv_addr)
             .await
