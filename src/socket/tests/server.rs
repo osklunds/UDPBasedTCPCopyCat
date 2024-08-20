@@ -327,7 +327,9 @@ fn mf_reads_and_writes() {
     let mut stream_state = uut_accept(&listener_state);
 
     uut_write_with_tc_ack(&mut stream_state, b"some data");
+    uut_read(&mut stream_state, b"some data to read");
     uut_write_with_tc_ack(&mut stream_state, b"other data this time");
+    uut_read(&mut stream_state, b"some data to read");
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -344,10 +346,7 @@ fn uut_listen() -> ListenerState {
     let listener = Listener::bind(initial_addr).unwrap();
     let uut_addr = listener.local_addr().unwrap();
 
-    ListenerState {
-        listener,
-        uut_addr
-    }
+    ListenerState { listener, uut_addr }
 }
 
 struct StreamState {
@@ -396,7 +395,8 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
     });
 
     let (uut_stream, client_addr) = listener_state.listener.accept().unwrap();
-    let (client_socket, send_next, receive_next) = connect_client_thread.join().unwrap();
+    let (client_socket, send_next, receive_next) =
+        connect_client_thread.join().unwrap();
     assert_eq!(client_addr, client_socket.local_addr().unwrap());
 
     StreamState {
@@ -415,13 +415,49 @@ fn uut_write_with_tc_ack(stream_state: &mut StreamState, data: &[u8]) {
     assert_eq!(len, written_len);
 
     // Recv from the tc
-    let exp_seg = Segment::new(Ack, stream_state.send_next, stream_state.receive_next, &data);
+    let exp_seg = Segment::new(
+        Ack,
+        stream_state.send_next,
+        stream_state.receive_next,
+        &data,
+    );
     recv__expect_segment(&stream_state, &exp_seg);
     stream_state.send_next += len as u32;
 
     // Send ack from the tc
-    let send_ack = Segment::new_empty(Ack, stream_state.receive_next, stream_state.send_next);
+    let send_ack = Segment::new_empty(
+        Ack,
+        stream_state.receive_next,
+        stream_state.send_next,
+    );
     send_segment(&stream_state, &send_ack);
+}
+
+fn uut_read(stream_state: &mut StreamState, data: &[u8]) {
+    // Send from the tc
+    let send_seg = Segment::new(
+        Ack,
+        stream_state.receive_next,
+        stream_state.send_next,
+        data,
+    );
+    send_segment(&stream_state, &send_seg);
+    stream_state.receive_next += data.len() as u32;
+
+    // Recv ACK from the uut
+    let exp_ack = Segment::new_empty(
+        Ack,
+        stream_state.send_next,
+        stream_state.receive_next,
+    );
+    recv__expect_segment(&stream_state, &exp_ack);
+}
+
+fn read__expect_data(state: &mut StreamState, exp_data: &[u8]) {
+    let mut read_data = vec![0; exp_data.len()];
+    assert_ne!(exp_data, read_data);
+    uut_stream(state).read_exact(&mut read_data).unwrap();
+    assert_eq!(exp_data, read_data);
 }
 
 fn uut_stream(stream_state: &mut StreamState) -> &mut Stream {
