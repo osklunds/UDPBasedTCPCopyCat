@@ -13,7 +13,14 @@ use crate::segment::Segment;
 #[test]
 fn explicit_sequence_numbers_one_client() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let mut listener = Listener::bind(initial_addr).unwrap();
+
+    let data1 = CustomAcceptData {
+        timer: PlainTimer {},
+        init_seq_num: 1000
+    };
+    let custom_accept_data = Some(vec![data1]);
+
+    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -129,7 +136,18 @@ fn explicit_sequence_numbers_one_client() {
 #[test]
 fn explicit_sequence_numbers_two_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let mut listener = Listener::bind(initial_addr).unwrap();
+
+    let data1 = CustomAcceptData {
+        timer: PlainTimer {},
+        init_seq_num: 1000
+    };
+    let data2 = CustomAcceptData {
+        timer: PlainTimer {},
+        init_seq_num: 1000
+    };
+    let custom_accept_data = Some(vec![data1, data2]);
+
+    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////

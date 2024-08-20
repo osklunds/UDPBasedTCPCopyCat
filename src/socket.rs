@@ -512,9 +512,18 @@ impl<T: Timer> Server<T> {
         segment: Segment,
         recv_addr: SocketAddr,
     ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>) {
-        // let mut send_next = rand::random();
         // println!("{:?}", "handle syn");
-        let mut send_next = 1000; // TODO: Control this a better way
+
+        let mut send_next = match &mut self.custom_accept_data {
+            None => {
+                rand::random()
+            },
+            Some(custom_accept_data) => {
+                let data = custom_accept_data.remove(0);
+                data.init_seq_num
+            }
+        };
+
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
         send_next += 1;
