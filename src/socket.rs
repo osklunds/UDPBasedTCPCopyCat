@@ -6,10 +6,12 @@ use async_std::future;
 use async_std::net::*;
 use async_trait::async_trait;
 use futures::executor::block_on;
+use futures::future::select_all;
 use futures::lock::{Mutex, MutexGuard};
 use futures::{future::FutureExt, pin_mut, select};
 use std::collections::BTreeMap;
 use std::io::{Error, ErrorKind, Read, Result};
+use std::pin::Pin;
 use std::str;
 use std::sync::Arc;
 use std::thread;
@@ -19,9 +21,18 @@ use std::time::Duration;
 use crate::segment::Kind::*;
 use crate::segment::Segment;
 
+
+//////////////////////////////////////////////////////////////////
+// Constants
+//////////////////////////////////////////////////////////////////
+
 const RETRANSMISSION_TIMER: Duration = Duration::from_millis(100);
 const MAXIMUM_SEGMENT_SIZE: u32 = 500;
 const MAXIMUM_RECV_BUFFER_SIZE: usize = 10;
+
+//////////////////////////////////////////////////////////////////
+// Timer
+//////////////////////////////////////////////////////////////////
 
 #[async_trait]
 trait Timer {
@@ -50,12 +61,24 @@ impl Timer for PlainTimer {
     }
 }
 
+//////////////////////////////////////////////////////////////////
+// Public structs and interface
+//////////////////////////////////////////////////////////////////
+
 pub struct Listener {
-    udp_socket: Arc<UdpSocket>,
+    local_addr: SocketAddr,
+    user_action_tx: Sender<UserAction>,
+    join_handle: JoinHandle<()>,
+    accept_rx: Receiver<(Stream, SocketAddr)>,
 }
 
 pub struct Stream {
-    inner_stream: InnerStream,
+    peer_action_rx: Receiver<PeerAction>,
+    user_action_tx: Sender<UserAction>,
+    join_handle: Option<JoinHandle<()>>,
+    shutdown_sent: bool,
+    read_timeout: Option<Duration>,
+    last_data: Option<Vec<u8>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,43 +87,49 @@ pub enum CloseResult {
     DataRemaining,
 }
 
-enum InnerStream {
-    Server(ServerStream),
-    Client(ClientStream),
-}
-
-struct ServerStream {
-    udp_socket: Arc<UdpSocket>,
-    peer_addr: SocketAddr,
-}
-
-struct ClientStream {
-    peer_action_rx: Receiver<PeerAction>,
-    user_action_tx: Sender<UserAction>,
-    join_handle: JoinHandle<()>,
-    shutdown_sent: bool,
-    read_timeout: Option<Duration>,
-    last_data: Option<Vec<u8>>,
-}
-
 enum PeerAction {
     Data(Vec<u8>),
     EOF,
 }
 
+#[derive(Debug)]
 enum UserAction {
     SendData(Vec<u8>),
     Shutdown,
     Close,
+    Accept,
 }
 
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
-                println!("Listener started");
+                // println!("Listener started");
+                let local_addr = udp_socket.local_addr().unwrap();
+                let (user_action_tx, user_action_rx) =
+                    async_channel::unbounded();
+                let (accept_tx, accept_rx) = async_channel::unbounded();
+
+                let udp_socket = Arc::new(udp_socket);
+
+                let join_handle = thread::Builder::new()
+                    .name("server".to_string())
+                    .spawn(move || {
+                        let mut server =
+                            Server::new(Arc::clone(&udp_socket), accept_tx);
+
+                        block_on(server.server_loop(
+                            Arc::clone(&udp_socket),
+                            &user_action_rx,
+                        ))
+                    })
+                    .unwrap();
+
                 let listener = Listener {
-                    udp_socket: Arc::new(udp_socket),
+                    local_addr,
+                    user_action_tx,
+                    join_handle,
+                    accept_rx,
                 };
                 Ok(listener)
             }
@@ -108,25 +137,28 @@ impl Listener {
         }
     }
 
-    pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
-        println!("accept called");
-        let mut buf = [0; 4096];
-        let (amt, peer_addr) =
-            block_on(self.udp_socket.recv_from(&mut buf)).unwrap();
-
-        let string = str::from_utf8(&buf[0..amt]).unwrap();
-
-        if string == "syn" {
-            println!("Got syn from {:?}", peer_addr);
-            let stream =
-                Stream::accept(Arc::clone(&self.udp_socket), peer_addr)
-                    .unwrap();
-            Ok((stream, peer_addr))
-        } else {
-            println!("non-syn received {:?}", string);
-            unimplemented!()
-        }
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.local_addr)
     }
+
+    pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
+        let (stream, peer_addr) = block_on(self.accept_rx.recv()).unwrap();
+        Ok((stream, peer_addr))
+    }
+
+    pub fn shutdown_all(&mut self) {
+        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
+    }
+
+    pub fn wait_shutdown_complete(self) {
+        self.join_handle.join().unwrap();
+    }
+}
+
+#[derive(Debug)]
+enum ServerSelectResult {
+    RecvSocket(Segment, SocketAddr),
+    RecvUserAction(Option<UserAction>),
 }
 
 impl Stream {
@@ -154,36 +186,28 @@ impl Stream {
                     Self::client_handshake(&udp_socket, init_seq_num).await
                 });
 
-                let temp_peer_addr = udp_socket.peer_addr().unwrap();
-
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
                     .spawn(move || {
-                        let mut connection = Connection::new(
-                            &udp_socket,
-                            temp_peer_addr,
+                        let mut client_connection = ClientConnection::new(
+                            udp_socket,
                             peer_action_tx,
+                            user_action_rx,
                             send_next,
                             receive_next,
                         );
 
-                        block_on(connection.connected_loop(
-                            &udp_socket,
-                            &user_action_rx,
-                            &timer,
-                        ))
+                        block_on(client_connection.run(timer));
                     })
                     .unwrap();
-                let client_stream = ClientStream {
+                let stream = Stream {
                     peer_action_rx,
                     user_action_tx,
-                    join_handle,
+                    join_handle: Some(join_handle),
                     shutdown_sent: false,
                     read_timeout: None,
                     last_data: None,
                 };
-                let inner_stream = InnerStream::Client(client_stream);
-                let stream = Stream { inner_stream };
                 Ok(stream)
             }
             Err(err) => Err(err),
@@ -224,86 +248,28 @@ impl Stream {
         (new_send_next, receive_next)
     }
 
-    fn accept<A: ToSocketAddrs>(
-        udp_socket: Arc<UdpSocket>,
-        to_peer_addr: A,
-    ) -> Result<Stream> {
-        let peer_addr = block_on(to_peer_addr.to_socket_addrs())
-            .unwrap()
-            .last()
-            .unwrap();
-
-        block_on(udp_socket.send_to("ack".as_bytes(), peer_addr)).unwrap();
-
-        let stream = ServerStream {
-            udp_socket,
-            peer_addr,
-        };
-
-        Ok(Self::pack_server_stream(stream))
-    }
-
-    fn pack_server_stream(server_stream: ServerStream) -> Stream {
-        Stream {
-            inner_stream: InnerStream::Server(server_stream),
-        }
-    }
-
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        match &mut self.inner_stream {
-            InnerStream::Client(client_stream) => {
-                ClientStream::write(client_stream, buf)
-            }
-            InnerStream::Server(server_stream) => {
-                ServerStream::write(server_stream, buf)
-            }
-        }
-    }
-
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match &mut self.inner_stream {
-            InnerStream::Client(client_stream) => {
-                ClientStream::read(client_stream, buf)
-            }
-            InnerStream::Server(server_stream) => {
-                ServerStream::read(server_stream, buf)
-            }
-        }
-    }
-
-    pub fn set_read_timeout(&mut self, dur: Option<Duration>) {
-        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
-            client_stream.set_read_timeout(dur);
-        }
-    }
-
     pub fn shutdown(&mut self) {
-        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
-            client_stream.shutdown_sent = true;
-            block_on(client_stream.user_action_tx.send(UserAction::Shutdown))
-                .unwrap();
-        }
+        self.shutdown_sent = true;
+        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
     }
 
     // TODO: If no FIN received, a timeout should be used to see that
     // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
     // on recv channel. If timeout, return. If error closed, return.
     pub fn wait_shutdown_complete(self) {
-        if let InnerStream::Client(client_stream) = self.inner_stream {
-            client_stream.join_handle.join().unwrap();
+        // TODO: Add channel for server
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
         }
     }
 
     pub fn close(self) {
-        if let InnerStream::Client(client_stream) = self.inner_stream {
-            block_on(client_stream.user_action_tx.send(UserAction::Close))
-                .unwrap();
-            client_stream.join_handle.join().unwrap();
+        block_on(self.user_action_tx.send(UserAction::Close)).unwrap();
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
         }
     }
-}
 
-impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() > 0);
         if self.shutdown_sent {
@@ -376,100 +342,280 @@ impl Read for Stream {
     }
 }
 
-impl ServerStream {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        block_on(self.udp_socket.send_to(buf, self.peer_addr))
-    }
+//////////////////////////////////////////////////////////////////
+// Server
+//////////////////////////////////////////////////////////////////
 
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        println!("server read from {:?}", self.udp_socket.local_addr());
-        block_on(self.udp_socket.recv(buf))
-    }
+struct Server {
+    udp_socket: Arc<UdpSocket>,
+    accept_tx: Sender<(Stream, SocketAddr)>,
+    connections: BTreeMap<SocketAddr, Sender<Segment>>,
 }
 
-struct Connection<'a> {
-    udp_socket: &'a UdpSocket,
-    peer_addr: SocketAddr,
-
-    peer_action_tx: Sender<PeerAction>,
-
-    timer_running: bool,
-    send_next: u32,
-    receive_next: u32,
-    fin_sent: bool,
-    fin_received: bool,
-    send_buffer: Vec<Segment>,
-    recv_buffer: BTreeMap<u32, Segment>,
+struct ServerConnection {
+    pub connection: Connection,
+    pub socket_send_rx: Receiver<Segment>,
+    pub socket_receive_tx: Sender<Segment>,
 }
 
-impl<'a> Connection<'a> {
+impl Server {
     pub fn new(
-        udp_socket: &'a UdpSocket,
-        peer_addr: SocketAddr,
-        peer_action_tx: Sender<PeerAction>,
-        send_next: u32,
-        receive_next: u32,
+        udp_socket: Arc<UdpSocket>,
+        accept_tx: Sender<(Stream, SocketAddr)>,
     ) -> Self {
         Self {
             udp_socket,
-            peer_addr,
-
-            peer_action_tx,
-
-            timer_running: false,
-            send_next,
-            receive_next,
-            fin_sent: false,
-            fin_received: false,
-            send_buffer: Vec::new(),
-            recv_buffer: BTreeMap::new(),
+            accept_tx,
+            connections: BTreeMap::new(),
         }
     }
 
-    pub async fn connected_loop<T: Timer>(
+    pub async fn server_loop(
         &mut self,
-        udp_socket: &UdpSocket,
+        udp_socket: Arc<UdpSocket>,
         user_action_rx: &Receiver<UserAction>,
-        timer: &Arc<T>,
     ) {
-        let future_recv_socket = Self::recv_socket(udp_socket).fuse();
+        let future_recv_socket = Box::pin(Self::recv_socket(&udp_socket));
         let future_recv_user_action =
-            Self::recv_user_action(user_action_rx).fuse();
-        let future_timeout = Self::timeout(timer, true).fuse();
+            Box::pin(Self::recv_user_action(user_action_rx));
 
-        pin_mut!(future_recv_socket, future_recv_user_action, future_timeout);
+        let mut futures: Vec<
+            Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
+        > = vec![future_recv_socket, future_recv_user_action];
+
+        loop {
+            let (result, _index, rest) = select_all(futures).await;
+            futures = rest;
+
+            match result {
+                ServerSelectResult::RecvSocket(segment, recv_addr) => {
+                    futures.push(Box::pin(Self::recv_socket(&udp_socket)));
+
+                    match self.handle_received_segment(segment, recv_addr).await
+                    {
+                        Some((mut connection, socket_send_rx)) => {
+                            futures.push(Box::pin(async move {
+                                let timer = Arc::new(PlainTimer {});
+                                connection.run(timer).await;
+                                ServerSelectResult::RecvUserAction(None)
+                            }));
+
+                            let udp_socket2 = Arc::clone(&udp_socket);
+                            futures.push(Box::pin(async move {
+                                loop {
+                                    match socket_send_rx.recv().await {
+                                        Ok((segment, to)) => {
+                                            udp_socket2.send_to(&segment.encode(),
+                                                        to).await.unwrap();
+                                        },
+                                        Err(_) => {
+                                            return ServerSelectResult::RecvUserAction(None)
+                                        }
+                                    }
+                                }
+                            }));
+                        }
+                        None => {}
+                    }
+                }
+                ServerSelectResult::RecvUserAction(user_action) => {
+                    match user_action {
+                        Some(user_action) => {
+                            match user_action {
+                                UserAction::Shutdown => {
+                                    // TODO: Shut down all connections
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
+                        None => {}
+                    }
+                }
+            }
+        }
+    }
+
+    async fn recv_socket(udp_socket: &Arc<UdpSocket>) -> ServerSelectResult {
+        let mut buf = [0; 4096];
+        let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
+        ServerSelectResult::RecvSocket(
+            Segment::decode(&buf[0..amt]).unwrap(),
+            recv_addr,
+        )
+    }
+
+    async fn recv_user_action(
+        user_action_rx: &Receiver<UserAction>,
+    ) -> ServerSelectResult {
+        let result = match user_action_rx.recv().await {
+            Ok(user_action) => Some(user_action),
+            Err(_) => None,
+        };
+        ServerSelectResult::RecvUserAction(result)
+    }
+
+    async fn handle_received_segment(
+        &mut self,
+        segment: Segment,
+        recv_addr: SocketAddr,
+    ) -> Option<(Connection, Receiver<(Segment, SocketAddr)>)> {
+        // println!("handle_received_segment {:?}", segment);
+        match segment.kind() {
+            Syn => Some(self.handle_syn(segment, recv_addr).await),
+            _ => {
+                let socket_receive_tx =
+                    self.connections.get(&recv_addr).unwrap();
+                socket_receive_tx.send(segment).await.unwrap();
+                None
+            }
+        }
+    }
+
+    async fn handle_syn(
+        &mut self,
+        segment: Segment,
+        recv_addr: SocketAddr,
+    ) -> (Connection, Receiver<(Segment, SocketAddr)>) {
+        // let mut send_next = rand::random();
+        // println!("{:?}", "handle syn");
+        let mut send_next = 1000; // TODO: Control this a better way
+        let receive_next = segment.seq_num() + 1;
+        let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
+        send_next += 1;
+
+        let encoded_syn_ack = Segment::encode(&syn_ack);
+
+        self.udp_socket
+            .send_to(&encoded_syn_ack, recv_addr)
+            .await
+            .unwrap();
+
+        // println!("accept done");
+
+        let (socket_send_tx, socket_send_rx) = async_channel::unbounded();
+        let (socket_receive_tx, socket_receive_rx) = async_channel::unbounded();
+
+        let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
+        let (user_action_tx, user_action_rx) = async_channel::unbounded();
+
+        let connection = Connection::new(
+            socket_send_tx,
+            socket_receive_rx,
+            recv_addr,
+            peer_action_tx,
+            user_action_rx,
+            send_next,
+            receive_next,
+        );
+
+        let server_stream = Stream {
+            peer_action_rx,
+            user_action_tx,
+            join_handle: None,
+            shutdown_sent: false,
+            read_timeout: None,
+            last_data: None,
+        };
+
+        assert!(self
+            .connections
+            .insert(recv_addr, socket_receive_tx)
+            .is_none());
+
+        self.accept_tx
+            .send((server_stream, recv_addr))
+            .await
+            .unwrap();
+
+        // TODO: Handle duplicate syn etc
+        // TODO: Only one shared socket_send_rx
+
+        (connection, socket_send_rx)
+    }
+}
+
+//////////////////////////////////////////////////////////////////
+// Client
+//////////////////////////////////////////////////////////////////
+
+struct ClientConnection {
+    udp_socket: Arc<UdpSocket>,
+    socket_send_rx: Arc<Receiver<(Segment, SocketAddr)>>,
+    socket_receive_tx: Arc<Sender<Segment>>,
+    connection: Connection,
+}
+
+impl ClientConnection {
+    pub fn new(
+        udp_socket: UdpSocket,
+        peer_action_tx: Sender<PeerAction>,
+        user_action_rx: Receiver<UserAction>,
+        send_next: u32,
+        receive_next: u32,
+    ) -> Self {
+        let (socket_send_tx, socket_send_rx) = async_channel::unbounded();
+        let (socket_receive_tx, socket_receive_rx) = async_channel::unbounded();
+
+        let connection = Connection::new(
+            socket_send_tx,
+            socket_receive_rx,
+            udp_socket.peer_addr().unwrap(),
+            peer_action_tx,
+            user_action_rx,
+            send_next,
+            receive_next,
+        );
+
+        Self {
+            udp_socket: Arc::new(udp_socket),
+            socket_send_rx: Arc::new(socket_send_rx),
+            socket_receive_tx: Arc::new(socket_receive_tx),
+            connection,
+        }
+    }
+
+    pub async fn run<T: Timer>(&mut self, timer: Arc<T>) {
+        let udp_socket = Arc::clone(&self.udp_socket);
+        let future_recv_socket = Self::recv_socket(&udp_socket).fuse();
+
+        let socket_send_rx = Arc::clone(&self.socket_send_rx);
+        let future_recv_socket_send_rx = socket_send_rx.recv().fuse();
+        let future_connection = self.connection.run(timer).fuse();
+
+        pin_mut!(
+            future_recv_socket,
+            future_recv_socket_send_rx,
+            future_connection
+        );
+
         loop {
             select! {
                 segment = future_recv_socket => {
-                    future_recv_socket.set(Self::recv_socket(
-                        udp_socket).fuse());
-                    if !self.handle_received_segment(segment).await {
-                        return;
+                    // println!("\n\n recv  {:?}   \n\n\n\n", segment);
+                    self.socket_receive_tx.send(segment).await.unwrap();
+                    future_recv_socket.set(Self::recv_socket(&udp_socket).fuse());
+                },
+
+                segment = future_recv_socket_send_rx => {
+                    match segment {
+                        Ok((segment, _to)) => {
+                            // println!("\n\n send  {:?}   \n\n\n\n", segment);
+                            let encoded_segment = segment.encode();
+                            udp_socket.send(&encoded_segment).await.unwrap();
+                            future_recv_socket_send_rx.set(socket_send_rx.recv().fuse())
+                        },
+                        Err(_) => {
+                            // println!("\n\n  {:?}   \n\n\n\n", "None");
+                            return
+                        }
                     }
                 },
 
-                user_action = future_recv_user_action => {
-                    future_recv_user_action.set(Self::recv_user_action(
-                        user_action_rx).fuse());
-                    if !self.handle_received_user_action(user_action).await {
-                        return;
-                    }
-                },
-
-                _ = future_timeout => {
-                    future_timeout.set(Self::timeout(timer, false).fuse());
-
-                    self.handle_retransmit().await;
+                _ = future_connection => {
+                    // println!("\n\n  {:?}   \n\n\n\n", "returned");
+                    return;
                 }
-            };
-            let buffer_is_empty = self.send_buffer.is_empty();
-
-            if buffer_is_empty && self.timer_running {
-                future_timeout.set(Self::timeout(timer, true).fuse());
-                self.timer_running = false;
-            } else if !buffer_is_empty && !self.timer_running {
-                future_timeout.set(Self::timeout(timer, false).fuse());
-                self.timer_running = true;
             }
         }
     }
@@ -480,6 +626,121 @@ impl<'a> Connection<'a> {
         let (amt, recv_addr) = udp_socket.recv_from(&mut buf).await.unwrap();
         assert_eq!(peer_addr, recv_addr);
         Segment::decode(&buf[0..amt]).unwrap()
+    }
+}
+
+//////////////////////////////////////////////////////////////////
+// Public structs and interface
+//////////////////////////////////////////////////////////////////
+
+struct Connection {
+    // Socket
+    socket_send_tx: Sender<(Segment, SocketAddr)>,
+    socket_receive_rx: Arc<Receiver<Segment>>,
+    peer_addr: SocketAddr,
+
+    // Channels
+    peer_action_tx: Sender<PeerAction>,
+    user_action_rx: Arc<Receiver<UserAction>>,
+
+    // State
+    timer_running: bool,
+    send_next: u32,
+    receive_next: u32,
+    fin_sent: bool,
+    fin_received: bool,
+    send_buffer: Vec<Segment>,
+    recv_buffer: BTreeMap<u32, Segment>,
+}
+
+impl Connection {
+    pub fn new(
+        // Socket
+        socket_send_tx: Sender<(Segment, SocketAddr)>,
+        socket_receive_rx: Receiver<Segment>,
+        peer_addr: SocketAddr,
+
+        // Channels
+        peer_action_tx: Sender<PeerAction>,
+        user_action_rx: Receiver<UserAction>,
+
+        // State
+        send_next: u32,
+        receive_next: u32,
+    ) -> Self {
+        Self {
+            // Socket
+            socket_send_tx,
+            socket_receive_rx: Arc::new(socket_receive_rx),
+            peer_addr,
+
+            // Channels
+            peer_action_tx,
+            user_action_rx: Arc::new(user_action_rx),
+
+            // State
+            timer_running: false,
+            send_next,
+            receive_next,
+            fin_sent: false,
+            fin_received: false,
+            send_buffer: Vec::new(),
+            recv_buffer: BTreeMap::new(),
+        }
+    }
+
+    pub async fn run<T: Timer>(&mut self, timer: Arc<T>) {
+        let socket_receive_rx = Arc::clone(&self.socket_receive_rx);
+        let future_recv_socket_receive = socket_receive_rx.recv().fuse();
+
+        let user_action_rx = Arc::clone(&self.user_action_rx);
+        let future_recv_user_action = user_action_rx.recv().fuse();
+
+        let future_timeout = Self::timeout(&timer, true).fuse();
+
+        pin_mut!(
+            future_recv_socket_receive,
+            future_recv_user_action,
+            future_timeout
+        );
+
+        loop {
+            select! {
+                segment = future_recv_socket_receive => {
+                    future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
+                    if !self.handle_received_segment(segment.unwrap()).await {
+                        // TODO: This sleep is needed because once FIN from tc
+                        // received, Connection returns. But still need
+                        // to schedule the send of the ACK to that FIN.
+                        async_std::task::sleep(Duration::from_millis(1)).await;
+                        // Note: also needed for server tests
+                        return;
+                    }
+                },
+
+                user_action = future_recv_user_action => {
+                    future_recv_user_action.set(user_action_rx.recv().fuse());
+                    if !self.handle_received_user_action(user_action).await {
+                        return;
+                    }
+                },
+
+                _ = future_timeout => {
+                    future_timeout.set(Self::timeout(&timer, false).fuse());
+
+                    self.handle_retransmit().await;
+                }
+            };
+            let buffer_is_empty = self.send_buffer.is_empty();
+
+            if buffer_is_empty && self.timer_running {
+                future_timeout.set(Self::timeout(&timer, true).fuse());
+                self.timer_running = false;
+            } else if !buffer_is_empty && !self.timer_running {
+                future_timeout.set(Self::timeout(&timer, false).fuse());
+                self.timer_running = true;
+            }
+        }
     }
 
     async fn handle_received_segment(&mut self, segment: Segment) -> bool {
@@ -613,21 +874,12 @@ impl<'a> Connection<'a> {
         self.send_segment(&ack).await;
     }
 
-    async fn recv_user_action(
-        user_action_rx: &Receiver<UserAction>,
-    ) -> Option<UserAction> {
-        match user_action_rx.recv().await {
-            Ok(user_action) => Some(user_action),
-            Err(_) => None,
-        }
-    }
-
     async fn handle_received_user_action(
         &mut self,
-        user_action: Option<UserAction>,
+        user_action: core::result::Result<UserAction, async_channel::RecvError>,
     ) -> bool {
         match user_action {
-            Some(UserAction::Shutdown) => {
+            Ok(UserAction::Shutdown) => {
                 let seg =
                     Segment::new_empty(Fin, self.send_next, self.receive_next);
 
@@ -638,7 +890,7 @@ impl<'a> Connection<'a> {
 
                 self.fin_sent = true;
             }
-            Some(UserAction::SendData(data)) => {
+            Ok(UserAction::SendData(data)) => {
                 for chunk in data.chunks(MAXIMUM_SEGMENT_SIZE as usize) {
                     let seg = Segment::new(
                         Ack,
@@ -653,10 +905,13 @@ impl<'a> Connection<'a> {
                     self.send_buffer.push(seg);
                 }
             }
-            Some(UserAction::Close) => {
+            Ok(UserAction::Close) => {
                 return false;
             }
-            None => {
+            Ok(UserAction::Accept) => {
+                panic!("Accept for client")
+            }
+            Err(_) => {
                 return false;
             }
         }
@@ -665,8 +920,10 @@ impl<'a> Connection<'a> {
     }
 
     async fn send_segment(&self, segment: &Segment) {
-        let encoded_seq = segment.encode();
-        self.udp_socket.send(&encoded_seq).await.unwrap();
+        self.socket_send_tx
+            .send((segment.clone(), self.peer_addr))
+            .await
+            .unwrap();
     }
 
     async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
