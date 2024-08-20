@@ -323,18 +323,22 @@ fn explicit_sequence_numbers_two_clients() {
 
 #[test]
 fn reads_and_writes() {
-    let listener_state = uut_listen();
+    let mut listener_state = uut_listen();
     let mut stream_state = uut_accept(&listener_state);
 
     uut_write_with_tc_ack(&mut stream_state, b"some data");
     uut_read(&mut stream_state, b"some data to read");
     uut_write_with_tc_ack(&mut stream_state, b"other data this time");
     uut_read(&mut stream_state, b"some data to read");
+
+    shutdown(stream_state);
+    listener_state.listener.shutdown_all();
+    listener_state.listener.wait_shutdown_complete();
 }
 
 #[test]
 fn reads_and_writes_multiple_clients() {
-    let listener_state = uut_listen();
+    let mut listener_state = uut_listen();
     // TODO: Interleaved accepts/reads/writes in other TC
     let mut stream_state1 = uut_accept(&listener_state);
     let mut stream_state2 = uut_accept(&listener_state);
@@ -351,11 +355,18 @@ fn reads_and_writes_multiple_clients() {
     uut_write_with_tc_ack(&mut stream_state3, b"hello");
     uut_write_with_tc_ack(&mut stream_state2, b"hej spam spam spam");
     uut_read(&mut stream_state1, b"data to read");
+
+    shutdown(stream_state1);
+    shutdown(stream_state2);
+    shutdown(stream_state3);
+
+    listener_state.listener.shutdown_all();
+    listener_state.listener.wait_shutdown_complete();
 }
 
 #[test]
 fn interleaved_reads_and_write_from_multiple_clients() {
-    let listener_state = uut_listen();
+    let mut listener_state = uut_listen();
 
     let mut stream_state1 = uut_accept(&listener_state);
     let mut stream_state2 = uut_accept(&listener_state);
@@ -383,8 +394,12 @@ fn interleaved_reads_and_write_from_multiple_clients() {
     send_tc_ack(&mut stream_state1);    
     send_tc_ack(&mut stream_state2);
 
-    // TODO: Remove
-    std::thread::sleep(Duration::from_millis(1));
+    shutdown(stream_state1);
+    shutdown(stream_state2);
+    shutdown(stream_state3);
+
+    listener_state.listener.shutdown_all();
+    listener_state.listener.wait_shutdown_complete();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -513,6 +528,38 @@ fn uut_read(stream_state: &mut StreamState, data: &[u8]) {
         stream_state.receive_next,
     );
     recv__expect_segment(&stream_state, &exp_ack);
+}
+
+fn shutdown(mut stream_state: StreamState) {
+    uut_shutdown_with_tc_ack__tc_still_connected(&mut stream_state);
+    tc_shutdown(&mut stream_state);
+    stream_state.uut_stream.take().unwrap().wait_shutdown_complete();
+}
+
+fn uut_shutdown_with_tc_ack__tc_still_connected(stream_state: &mut StreamState) {
+    // Shutdown from the uut
+    uut_stream(stream_state).shutdown();
+
+    // Recv FIN from the uut
+    let exp_fin = Segment::new_empty(Fin, stream_state.send_next, stream_state.receive_next);
+    recv__expect_segment(&stream_state, &exp_fin);
+    stream_state.send_next += 1;
+
+    let ack_to_fin =
+        Segment::new_empty(Ack, stream_state.receive_next, stream_state.send_next);
+    send_segment(&stream_state, &ack_to_fin);
+}
+
+fn tc_shutdown(stream_state: &mut StreamState) {
+    // tc sends FIN
+    let send_seg = Segment::new_empty(Fin, stream_state.receive_next, stream_state.send_next);
+    send_segment(&stream_state, &send_seg);
+    stream_state.receive_next += 1;
+
+    // uut sends ACK to the FIN
+    let exp_ack_to_fin =
+        Segment::new_empty(Ack, stream_state.send_next, stream_state.receive_next);
+    recv__expect_segment(&stream_state, &exp_ack_to_fin);
 }
 
 fn read__expect_data(state: &mut StreamState, exp_data: &[u8]) {
