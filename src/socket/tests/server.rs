@@ -143,7 +143,7 @@ fn explicit_sequence_numbers_two_clients() {
     };
     let data2 = CustomAcceptData {
         timer: PlainTimer {},
-        init_seq_num: 1000
+        init_seq_num: 5000
     };
     let custom_accept_data = Some(vec![data1, data2]);
 
@@ -202,11 +202,11 @@ fn explicit_sequence_numbers_two_clients() {
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client2_socket, server_addr);
 
-        let exp_syn_ack = Segment::new_empty(SynAck, 1000, 3001);
+        let exp_syn_ack = Segment::new_empty(SynAck, 5000, 3001);
         assert_eq!(exp_syn_ack, syn_ack);
 
         // Send ACK
-        let ack = Segment::new_empty(Ack, 3001, 1001);
+        let ack = Segment::new_empty(Ack, 3001, 5001);
         send_segment_to(&client2_socket, server_addr, &ack);
 
         // println!("{:?}", "tc: connect2 done");
@@ -240,11 +240,11 @@ fn explicit_sequence_numbers_two_clients() {
 
     uut_stream2.write(b"hej").unwrap();
 
-    let exp_seg_write1_client2 = Segment::new(Ack, 1001, 3001, b"hej");
+    let exp_seg_write1_client2 = Segment::new(Ack, 5001, 3001, b"hej");
     let seg_write1_client2 = recv_segment_from(&client2_socket, server_addr);
     assert_eq!(exp_seg_write1_client2, seg_write1_client2);
 
-    let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1004);
+    let ack_seg_write1 = Segment::new_empty(Ack, 2001, 5004);
     send_segment_to(&client2_socket, server_addr, &ack_seg_write1);
 
     // println!("write1 client2 done");
@@ -309,10 +309,10 @@ fn explicit_sequence_numbers_two_clients() {
     // Client2: Shutdown from tc
     //////////////////////////////////////////////////////////////////
 
-    let fin_from_tc = Segment::new_empty(Fin, 3001, 1004);
+    let fin_from_tc = Segment::new_empty(Fin, 3001, 5004);
     send_segment_to(&client2_socket, server_addr, &fin_from_tc);
 
-    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 1004, 3002);
+    let exp_ack_to_fin_from_tc = Segment::new_empty(Ack, 5004, 3002);
     let ack_to_fin_from_tc = recv_segment_from(&client2_socket, server_addr);
     assert_eq!(exp_ack_to_fin_from_tc, ack_to_fin_from_tc);
 
@@ -322,11 +322,11 @@ fn explicit_sequence_numbers_two_clients() {
 
     uut_stream2.shutdown();
 
-    let exp_fin = Segment::new_empty(Fin, 1004, 3002);
+    let exp_fin = Segment::new_empty(Fin, 5004, 3002);
     let fin_from_uut = recv_segment_from(&client2_socket, server_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
-    let ack_to_fin_from_uut = Segment::new_empty(Ack, 3002, 1005);
+    let ack_to_fin_from_uut = Segment::new_empty(Ack, 3002, 5005);
     send_segment_to(&client2_socket, server_addr, &ack_to_fin_from_uut);
 
     uut_stream2.wait_shutdown_complete();
