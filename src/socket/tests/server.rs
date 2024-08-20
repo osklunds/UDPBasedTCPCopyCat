@@ -55,7 +55,7 @@ fn mf_explicit_sequence_numbers() {
     // Write #1
     //////////////////////////////////////////////////////////////////
 
-        uut_stream.write(b"hello").unwrap();
+    uut_stream.write(b"hello").unwrap();
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&client_socket, server_addr);
@@ -80,7 +80,7 @@ fn mf_explicit_sequence_numbers() {
     send_segment_to(&client_socket, server_addr, &ack_seg_write2);
 
     // println!("write2 done");
-    
+
     //////////////////////////////////////////////////////////////////
     // Read
     //////////////////////////////////////////////////////////////////
@@ -165,7 +165,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     let (mut uut_stream1, client1_addr) = listener.accept().unwrap();
     let client1_socket = connect_client1_thread.join().unwrap();
     assert_eq!(client1_addr, client1_socket.local_addr().unwrap());
-    
+
     //////////////////////////////////////////////////////////////////
     // Connect client 2
     //////////////////////////////////////////////////////////////////
@@ -245,7 +245,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     send_segment_to(&client1_socket, server_addr, &ack_seg_write2);
 
     // println!("write2 done");
-    
+
     //////////////////////////////////////////////////////////////////
     // Read
     //////////////////////////////////////////////////////////////////
@@ -321,7 +321,10 @@ fn mf_explicit_sequence_numbers_two_clients() {
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
 
-fn recv_segment_from(client_socket: &UdpSocket, uut_addr: SocketAddr) -> Segment {
+fn recv_segment_from(
+    client_socket: &UdpSocket,
+    uut_addr: SocketAddr,
+) -> Segment {
     let (seg, recv_addr) = recv_segment_with_addr(client_socket);
     assert_eq!(uut_addr, recv_addr);
     seg

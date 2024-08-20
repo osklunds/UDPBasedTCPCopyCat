@@ -56,36 +56,22 @@ pub struct Listener {
     local_addr: SocketAddr,
     user_action_tx: Sender<UserAction>,
     join_handle: JoinHandle<()>,
-    accept_rx: Receiver<(ClientStream, SocketAddr)>,
+    accept_rx: Receiver<(Stream, SocketAddr)>,
 }
 
 pub struct Stream {
-    inner_stream: InnerStream,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum CloseResult {
-    AllDataSent,
-    DataRemaining,
-}
-
-enum InnerStream {
-    Server(ServerStream),
-    Client(ClientStream),
-}
-
-struct ServerStream {
-    peer_action_rx: Receiver<PeerAction>,
-    user_action_tx: Sender<UserAction>,
-}
-
-struct ClientStream {
     peer_action_rx: Receiver<PeerAction>,
     user_action_tx: Sender<UserAction>,
     join_handle: Option<JoinHandle<()>>,
     shutdown_sent: bool,
     read_timeout: Option<Duration>,
     last_data: Option<Vec<u8>>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CloseResult {
+    AllDataSent,
+    DataRemaining,
 }
 
 enum PeerAction {
@@ -143,8 +129,7 @@ impl Listener {
     }
 
     pub fn accept(&self) -> Result<(Stream, SocketAddr)> {
-        let (server_stream, peer_addr) = block_on(self.accept_rx.recv()).unwrap();
-        let stream = Stream { inner_stream: InnerStream::Client(server_stream) };
+        let (stream, peer_addr) = block_on(self.accept_rx.recv()).unwrap();
         Ok((stream, peer_addr))
     }
 
@@ -165,7 +150,7 @@ enum ServerSelectResult {
 
 struct Server {
     udp_socket: Arc<UdpSocket>,
-    accept_tx: Sender<(ClientStream, SocketAddr)>,
+    accept_tx: Sender<(Stream, SocketAddr)>,
     connections: BTreeMap<SocketAddr, Sender<Segment>>,
 }
 
@@ -178,7 +163,7 @@ struct ServerConnection {
 impl Server {
     pub fn new(
         udp_socket: Arc<UdpSocket>,
-        accept_tx: Sender<(ClientStream, SocketAddr)>,
+        accept_tx: Sender<(Stream, SocketAddr)>,
     ) -> Self {
         Self {
             udp_socket,
@@ -197,8 +182,8 @@ impl Server {
             Box::pin(Self::recv_user_action(user_action_rx));
 
         let mut futures: Vec<
-                Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
-            > = vec![future_recv_socket, future_recv_user_action];
+            Pin<Box<dyn futures::Future<Output = ServerSelectResult>>>,
+        > = vec![future_recv_socket, future_recv_user_action];
 
         loop {
             let (result, _index, rest) = select_all(futures).await;
@@ -208,7 +193,8 @@ impl Server {
                 ServerSelectResult::RecvSocket(segment, recv_addr) => {
                     futures.push(Box::pin(Self::recv_socket(&udp_socket)));
 
-                    match self.handle_received_segment(segment, recv_addr).await {
+                    match self.handle_received_segment(segment, recv_addr).await
+                    {
                         Some((mut connection, socket_send_rx)) => {
                             futures.push(Box::pin(async move {
                                 let timer = Arc::new(PlainTimer {});
@@ -230,10 +216,8 @@ impl Server {
                                     }
                                 }
                             }));
-                        },
-                        None => {
-
                         }
+                        None => {}
                     }
                 }
                 ServerSelectResult::RecvUserAction(user_action) => {
@@ -243,13 +227,13 @@ impl Server {
                                 UserAction::Shutdown => {
                                     // TODO: Shut down all connections
                                     return;
-                                },
+                                }
                                 _ => {}
                             }
-                        },
+                        }
                         None => {}
                     }
-                },
+                }
             }
         }
     }
@@ -282,7 +266,8 @@ impl Server {
         match segment.kind() {
             Syn => Some(self.handle_syn(segment, recv_addr).await),
             _ => {
-                let socket_receive_tx = self.connections.get(&recv_addr).unwrap();
+                let socket_receive_tx =
+                    self.connections.get(&recv_addr).unwrap();
                 socket_receive_tx.send(segment).await.unwrap();
                 None
             }
@@ -310,13 +295,11 @@ impl Server {
 
         // println!("accept done");
 
-
         let (socket_send_tx, socket_send_rx) = async_channel::unbounded();
         let (socket_receive_tx, socket_receive_rx) = async_channel::unbounded();
 
         let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
-
 
         let connection = Connection::new(
             socket_send_tx,
@@ -328,7 +311,7 @@ impl Server {
             receive_next,
         );
 
-        let server_stream = ClientStream {
+        let server_stream = Stream {
             peer_action_rx,
             user_action_tx,
             join_handle: None,
@@ -337,9 +320,15 @@ impl Server {
             last_data: None,
         };
 
-        assert!(self.connections.insert(recv_addr, socket_receive_tx).is_none());
+        assert!(self
+            .connections
+            .insert(recv_addr, socket_receive_tx)
+            .is_none());
 
-        self.accept_tx.send((server_stream, recv_addr)).await.unwrap();
+        self.accept_tx
+            .send((server_stream, recv_addr))
+            .await
+            .unwrap();
 
         // TODO: Handle duplicate syn etc
         // TODO: Only one shared socket_send_rx
@@ -387,7 +376,7 @@ impl Stream {
                         block_on(client_connection.run(timer));
                     })
                     .unwrap();
-                let client_stream = ClientStream {
+                let stream = Stream {
                     peer_action_rx,
                     user_action_tx,
                     join_handle: Some(join_handle),
@@ -395,8 +384,6 @@ impl Stream {
                     read_timeout: None,
                     last_data: None,
                 };
-                let inner_stream = InnerStream::Client(client_stream);
-                let stream = Stream { inner_stream };
                 Ok(stream)
             }
             Err(err) => Err(err),
@@ -437,87 +424,27 @@ impl Stream {
         (new_send_next, receive_next)
     }
 
-    // fn accept<A: ToSocketAddrs>(
-    //     udp_socket: Arc<UdpSocket>,
-    //     to_peer_addr: A,
-    // ) -> Result<Stream> {
-    //     let peer_addr = block_on(to_peer_addr.to_socket_addrs())
-    //         .unwrap()
-    //         .last()
-    //         .unwrap();
-
-    //     block_on(udp_socket.send_to("ack".as_bytes(), peer_addr)).unwrap();
-
-    //     let inner_stream = InnerStream::Client(client_stream);
-    //     let stream = Stream { inner_stream };
-    //     Ok(stream)
-    // }
-
-    fn pack_server_stream(server_stream: ServerStream) -> Stream {
-        Stream {
-            inner_stream: InnerStream::Server(server_stream),
-        }
-    }
-
-    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        match &mut self.inner_stream {
-            InnerStream::Client(client_stream) => {
-                ClientStream::write(client_stream, buf)
-            }
-            InnerStream::Server(_server_stream) => {
-                panic!("todo")
-            }
-        }
-    }
-
-    pub fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        match &mut self.inner_stream {
-            InnerStream::Client(client_stream) => {
-                ClientStream::read(client_stream, buf)
-            }
-            InnerStream::Server(_server_stream) => {
-                panic!("todo")
-            }
-        }
-    }
-
-    pub fn set_read_timeout(&mut self, dur: Option<Duration>) {
-        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
-            client_stream.set_read_timeout(dur);
-        }
-    }
-
     pub fn shutdown(&mut self) {
-        if let InnerStream::Client(client_stream) = &mut self.inner_stream {
-            client_stream.shutdown_sent = true;
-            block_on(client_stream.user_action_tx.send(UserAction::Shutdown))
-                .unwrap();
-        }
+        self.shutdown_sent = true;
+        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
     }
 
     // TODO: If no FIN received, a timeout should be used to see that
     // not getting stuck. Have a set_shutdown_timeout function. Wait for EOF
     // on recv channel. If timeout, return. If error closed, return.
     pub fn wait_shutdown_complete(self) {
-        if let InnerStream::Client(client_stream) = self.inner_stream {
-            if let Some(join_handle) = client_stream.join_handle {
-                join_handle.join().unwrap();
-            }
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
         }
     }
 
     pub fn close(self) {
-        if let InnerStream::Client(client_stream) = self.inner_stream {
-            block_on(client_stream.user_action_tx.send(UserAction::Close))
-                .unwrap();
-            if let Some(join_handle) = client_stream.join_handle {
-                join_handle.join().unwrap();
-            }
+        block_on(self.user_action_tx.send(UserAction::Close)).unwrap();
+        if let Some(join_handle) = self.join_handle {
+            join_handle.join().unwrap();
         }
     }
-}
 
-impl ClientStream {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() > 0);
         if self.shutdown_sent {
@@ -589,17 +516,6 @@ impl Read for Stream {
         Stream::read(self, buf)
     }
 }
-
-// impl ServerStream {
-//     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-//         block_on(self.udp_socket.send_to(buf, self.peer_addr))
-//     }
-
-//     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-//         println!("server read from {:?}", self.udp_socket.local_addr());
-//         block_on(self.udp_socket.recv(buf))
-//     }
-// }
 
 struct ClientConnection {
     udp_socket: Arc<UdpSocket>,
@@ -731,7 +647,7 @@ impl Connection {
             socket_send_tx,
             socket_receive_rx: Arc::new(socket_receive_rx),
             peer_addr,
-            
+
             // Channels
             peer_action_tx,
             user_action_rx: Arc::new(user_action_rx),
@@ -978,7 +894,10 @@ impl Connection {
     }
 
     async fn send_segment(&self, segment: &Segment) {
-        self.socket_send_tx.send((segment.clone(), self.peer_addr)).await.unwrap();
+        self.socket_send_tx
+            .send((segment.clone(), self.peer_addr))
+            .await
+            .unwrap();
     }
 
     async fn timeout<T: Timer>(timer: &Arc<T>, forever: bool) {
