@@ -147,6 +147,14 @@ impl Listener {
         let stream = Stream { inner_stream: InnerStream::Client(server_stream) };
         Ok((stream, peer_addr))
     }
+
+    pub fn shutdown_all(&mut self) {
+        block_on(self.user_action_tx.send(UserAction::Shutdown)).unwrap();
+    }
+
+    pub fn wait_shutdown_complete(self) {
+        self.join_handle.join().unwrap();
+    }
 }
 
 #[derive(Debug)]
@@ -228,9 +236,20 @@ impl Server {
                         }
                     }
                 }
-                _ => {
-
-                }
+                ServerSelectResult::RecvUserAction(user_action) => {
+                    match user_action {
+                        Some(user_action) => {
+                            match user_action {
+                                UserAction::Shutdown => {
+                                    // TODO: Shut down all connections
+                                    return;
+                                },
+                                _ => {}
+                            }
+                        },
+                        None => {}
+                    }
+                },
             }
         }
     }

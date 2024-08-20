@@ -124,14 +124,12 @@ fn mf_explicit_sequence_numbers() {
     uut_stream.wait_shutdown_complete();
 
     // println!("{:?}", "done");
-
-    ()
 }
 
 #[test]
 fn mf_explicit_sequence_numbers_two_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let listener = Listener::bind(initial_addr).unwrap();
+    let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -315,9 +313,8 @@ fn mf_explicit_sequence_numbers_two_clients() {
 
     // println!("{:?}", "done");
 
-    // std::thread::sleep(Duration::from_millis(10000));
-
-    ()
+    listener.shutdown_all();
+    listener.wait_shutdown_complete();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
