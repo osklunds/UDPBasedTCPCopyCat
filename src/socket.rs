@@ -100,8 +100,20 @@ enum UserAction {
     Accept,
 }
 
+struct BindCustomData<T> {
+    timer: T,
+    init_seq_num: u32,
+}
+
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
+        Self::bind_custom::<A, PlainTimer>(local_addr, None)
+    }
+
+    fn bind_custom<A: ToSocketAddrs, T: Timer>(
+        local_addr: A,
+        _custom_data: Option<Vec<BindCustomData<T>>>,
+    ) -> Result<Listener> {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
                 // println!("Listener started");
