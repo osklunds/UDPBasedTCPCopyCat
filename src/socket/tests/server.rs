@@ -11,7 +11,7 @@ use self::mock_timer::MockTimer;
 use crate::segment::Segment;
 
 #[test]
-fn mf_explicit_sequence_numbers() {
+fn explicit_sequence_numbers() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
@@ -127,7 +127,7 @@ fn mf_explicit_sequence_numbers() {
 }
 
 #[test]
-fn mf_explicit_sequence_numbers_two_clients() {
+fn explicit_sequence_numbers_two_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
@@ -322,7 +322,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn mf_reads_and_writes() {
+fn reads_and_writes() {
     let listener_state = uut_listen();
     let mut stream_state = uut_accept(&listener_state);
 
@@ -333,7 +333,7 @@ fn mf_reads_and_writes() {
 }
 
 #[test]
-fn mf_reads_and_writes_multiple_clients() {
+fn reads_and_writes_multiple_clients() {
     let listener_state = uut_listen();
     // TODO: Interleaved accepts/reads/writes in other TC
     let mut stream_state1 = uut_accept(&listener_state);
@@ -351,6 +351,40 @@ fn mf_reads_and_writes_multiple_clients() {
     uut_write_with_tc_ack(&mut stream_state3, b"hello");
     uut_write_with_tc_ack(&mut stream_state2, b"hej spam spam spam");
     uut_read(&mut stream_state1, b"data to read");
+}
+
+#[test]
+fn interleaved_reads_and_write_from_multiple_clients() {
+    let listener_state = uut_listen();
+
+    let mut stream_state1 = uut_accept(&listener_state);
+    let mut stream_state2 = uut_accept(&listener_state);
+    let mut stream_state3 = uut_accept(&listener_state);
+
+    // Random interleaved reads and writes
+    uut_write(&mut stream_state1, b"1");
+    uut_write(&mut stream_state2, b"2");
+    uut_read(&mut stream_state3, b"3"); 
+    send_tc_ack(&mut stream_state2);    
+    uut_read(&mut stream_state2, b"4"); 
+    uut_write(&mut stream_state2, b"5");
+    send_tc_ack(&mut stream_state1);    
+    send_tc_ack(&mut stream_state2);
+
+    // For both streams, the server- and client-sides, respectivly,
+    // write and read at the same time. I.e. packets passing each other
+    // on the wire.
+    uut_write(&mut stream_state1, b"a");
+    uut_write(&mut stream_state2, b"b");
+    uut_read(&mut stream_state1, b"c"); 
+    uut_read(&mut stream_state2, b"d"); 
+    uut_write(&mut stream_state1, b"e");
+    uut_write(&mut stream_state2, b"f");
+    send_tc_ack(&mut stream_state1);    
+    send_tc_ack(&mut stream_state2);
+
+    // TODO: Remove
+    std::thread::sleep(Duration::from_millis(1));
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -430,6 +464,11 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
 }
 
 fn uut_write_with_tc_ack(stream_state: &mut StreamState, data: &[u8]) {
+    uut_write(stream_state, data);
+    send_tc_ack(stream_state);
+}
+
+fn uut_write(stream_state: &mut StreamState, data: &[u8]) {
     // Send from the uut
     let written_len = uut_stream(stream_state).write(&data).unwrap();
     let len = data.len();
@@ -442,10 +481,12 @@ fn uut_write_with_tc_ack(stream_state: &mut StreamState, data: &[u8]) {
         stream_state.receive_next,
         &data,
     );
+
     recv__expect_segment(&stream_state, &exp_seg);
     stream_state.send_next += len as u32;
+}
 
-    // Send ack from the tc
+fn send_tc_ack(stream_state: &StreamState) {
     let send_ack = Segment::new_empty(
         Ack,
         stream_state.receive_next,
