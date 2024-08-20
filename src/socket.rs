@@ -105,7 +105,7 @@ impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
         match block_on(UdpSocket::bind(local_addr)) {
             Ok(udp_socket) => {
-                println!("Listener started");
+                // println!("Listener started");
                 let local_addr = udp_socket.local_addr().unwrap();
                 let (user_action_tx, user_action_rx) =
                     async_channel::unbounded();
@@ -259,7 +259,7 @@ impl Server {
         segment: Segment,
         recv_addr: SocketAddr,
     ) -> Option<(Connection, Receiver<(Segment, SocketAddr)>)> {
-        println!("handle_received_segment {:?}", segment);
+        // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
             Syn => Some(self.handle_syn(segment, recv_addr).await),
             _ => {
@@ -276,7 +276,7 @@ impl Server {
         recv_addr: SocketAddr,
     ) -> (Connection, Receiver<(Segment, SocketAddr)>) {
         // let mut send_next = rand::random();
-        println!("{:?}", "handle syn");
+        // println!("{:?}", "handle syn");
         let mut send_next = 1000; // TODO: Control this a better way
         let receive_next = segment.seq_num() + 1;
         let syn_ack = Segment::new_empty(SynAck, send_next, receive_next);
@@ -289,7 +289,7 @@ impl Server {
             .await
             .unwrap();
 
-        println!("accept done");
+        // println!("accept done");
 
 
         let (socket_send_tx, socket_send_rx) = async_channel::unbounded();

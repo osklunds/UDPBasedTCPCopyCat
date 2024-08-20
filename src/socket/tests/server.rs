@@ -17,9 +17,9 @@ fn mf_explicit_sequence_numbers() {
     let uut_addr = listener.local_addr().unwrap();
 
     let accept_thread = thread::spawn(move || {
-        println!("{:?}", "tc: start accept");
+        // println!("{:?}", "tc: start accept");
         let uut_stream = listener.accept().unwrap();
-        println!("{:?}", "tc: accept done");
+        // println!("{:?}", "tc: accept done");
         uut_stream
     });
 
@@ -52,7 +52,7 @@ fn mf_explicit_sequence_numbers() {
     let (mut uut_stream, client_addr) = accept_thread.join().unwrap();
     assert_eq!(tc_addr, client_addr);
 
-    println!("{:?}", "tc: connect done");
+    // println!("{:?}", "tc: connect done");
 
     //////////////////////////////////////////////////////////////////
     // Write #1
@@ -67,7 +67,7 @@ fn mf_explicit_sequence_numbers() {
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&tc_socket, uut_addr, &ack_seg_write1);
 
-    println!("write1 done");
+    // println!("write1 done");
 
     //////////////////////////////////////////////////////////////////
     // Write #2
@@ -82,7 +82,7 @@ fn mf_explicit_sequence_numbers() {
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&tc_socket, uut_addr, &ack_seg_write2);
 
-    println!("write2 done");
+    // println!("write2 done");
     
     //////////////////////////////////////////////////////////////////
     // Read
@@ -95,7 +95,7 @@ fn mf_explicit_sequence_numbers() {
     let ack_read1 = recv_segment_from(&tc_socket, uut_addr);
     assert_eq!(exp_ack_read1, ack_read1);
 
-    println!("read done");
+    // println!("read done");
 
     //////////////////////////////////////////////////////////////////
     // Shutdown from uut
@@ -123,7 +123,7 @@ fn mf_explicit_sequence_numbers() {
 
     uut_stream.wait_shutdown_complete();
 
-    println!("{:?}", "done");
+    // println!("{:?}", "done");
 
     ()
 }
@@ -159,7 +159,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
         let ack = Segment::new_empty(Ack, 2001, 1001);
         send_segment_to(&client1_socket, server_addr, &ack);
 
-        println!("{:?}", "tc: connect1 done");
+        // println!("{:?}", "tc: connect1 done");
 
         client1_socket
     });
@@ -193,7 +193,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
         let ack = Segment::new_empty(Ack, 3001, 1001);
         send_segment_to(&client2_socket, server_addr, &ack);
 
-        println!("{:?}", "tc: connect2 done");
+        // println!("{:?}", "tc: connect2 done");
 
         client2_socket
     });
@@ -216,7 +216,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&client1_socket, server_addr, &ack_seg_write1);
 
-    println!("write1 client1 done");
+    // println!("write1 client1 done");
 
     //////////////////////////////////////////////////////////////////
     // Write #1 - client 2
@@ -231,7 +231,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1004);
     send_segment_to(&client1_socket, server_addr, &ack_seg_write1);
 
-    println!("write1 client2 done");
+    // println!("write1 client2 done");
 
     //////////////////////////////////////////////////////////////////
     // Write #2
@@ -246,7 +246,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&client1_socket, server_addr, &ack_seg_write2);
 
-    println!("write2 done");
+    // println!("write2 done");
     
     //////////////////////////////////////////////////////////////////
     // Read
@@ -259,7 +259,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
     let ack_read1 = recv_segment_from(&client1_socket, server_addr);
     assert_eq!(exp_ack_read1, ack_read1);
 
-    println!("read done");
+    // println!("read done");
 
     //////////////////////////////////////////////////////////////////
     // Client1: Shutdown from uut
@@ -313,7 +313,7 @@ fn mf_explicit_sequence_numbers_two_clients() {
 
     uut_stream2.wait_shutdown_complete();
 
-    println!("{:?}", "done");
+    // println!("{:?}", "done");
 
     // std::thread::sleep(Duration::from_millis(10000));
 
