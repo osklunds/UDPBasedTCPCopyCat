@@ -24,11 +24,14 @@ fn one_client() {
     // assert_eq!(client_addr, client_stream.local_addr());
     assert_ne!(client_addr, server_addr);
 
-    const DATA_TO_SEND: &[u8; 17] = b"hello from client";
-    client_stream.write(DATA_TO_SEND).unwrap();
-    let mut data_received = [0; DATA_TO_SEND.len()];
-    server_stream.read_exact(&mut data_received).unwrap();
-    assert_eq!(data_received, *DATA_TO_SEND);
+    write_and_read(&mut server_stream, &mut client_stream, b"hello from server");
+    write_and_read(&mut client_stream, &mut server_stream, b"hello from client");
+
+    write_and_read(&mut client_stream, &mut server_stream, b"a");
+    write_and_read(&mut server_stream, &mut client_stream, b"b");
+
+    write_and_read(&mut client_stream, &mut server_stream, b"short msg");
+    write_and_read(&mut server_stream, &mut client_stream, b"loooooooong messe");
 
     client_stream.shutdown();
     server_stream.shutdown();
@@ -37,3 +40,14 @@ fn one_client() {
     listener.shutdown_all();
     listener.wait_shutdown_complete();
 }
+
+fn write_and_read(writer_stream: &mut Stream, reader_stream: &mut Stream, data: &[u8]) {
+    let mut read_data = vec![0; data.len()];
+
+    writer_stream.write(data).unwrap();
+
+    assert_ne!(read_data, data);
+    reader_stream.read_exact(&mut read_data).unwrap();
+    assert_eq!(read_data, data);
+}
+
