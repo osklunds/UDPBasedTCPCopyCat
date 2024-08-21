@@ -298,7 +298,7 @@ impl Stream {
         self.wait_shutdown_complete();
     }
 
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    pub fn write(&mut self, buf: &[u8]) -> Result<usize> {
         assert!(buf.len() > 0);
         if self.shutdown_sent {
             Err(Error::new(ErrorKind::NotConnected, "Not connected"))
