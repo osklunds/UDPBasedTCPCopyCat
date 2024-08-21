@@ -79,6 +79,7 @@ pub struct Stream {
     shutdown_sent: bool,
     read_timeout: Option<Duration>,
     last_data: Option<Vec<u8>>,
+    local_addr: SocketAddr,
 }
 
 #[derive(Debug, PartialEq)]
@@ -198,17 +199,19 @@ impl Stream {
         peer_addr: A,
         init_seq_num: u32,
     ) -> Result<Stream> {
-        let local_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-
         let (peer_action_tx, peer_action_rx) = async_channel::unbounded();
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
-        match block_on(UdpSocket::bind(local_addr)) {
+        let any_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        
+        match block_on(UdpSocket::bind(any_addr)) {
             Ok(udp_socket) => {
                 let (send_next, receive_next) = block_on(async {
                     UdpSocket::connect(&udp_socket, peer_addr).await.unwrap();
                     Self::client_handshake(&udp_socket, init_seq_num).await
                 });
+
+                let local_addr = udp_socket.local_addr().unwrap();
 
                 let join_handle = thread::Builder::new()
                     .name("client".to_string())
@@ -231,6 +234,7 @@ impl Stream {
                     shutdown_sent: false,
                     read_timeout: None,
                     last_data: None,
+                    local_addr 
                 };
                 Ok(stream)
             }
@@ -355,8 +359,12 @@ impl Stream {
         }
     }
 
-    fn set_read_timeout(&mut self, dur: Option<Duration>) {
+    pub fn set_read_timeout(&mut self, dur: Option<Duration>) {
         self.read_timeout = dur;
+    }
+
+    pub fn local_addr(&self) -> Result<SocketAddr> {
+        Ok(self.local_addr)
     }
 }
 
@@ -591,6 +599,7 @@ impl<T: Timer> Server<T> {
             shutdown_sent: false,
             read_timeout: None,
             last_data: None,
+            local_addr: self.udp_socket.local_addr().unwrap()
         };
 
         assert!(self

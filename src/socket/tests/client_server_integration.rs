@@ -21,7 +21,8 @@ fn one_client() {
 
     let mut client_stream = connect_client_thread.join().unwrap();
 
-    // assert_eq!(client_addr, client_stream.local_addr());
+    assert_eq!(client_addr, client_stream.local_addr().unwrap());
+    assert_eq!(server_addr, server_stream.local_addr().unwrap());
     assert_ne!(client_addr, server_addr);
 
     write_and_read(&mut server_stream, &mut client_stream, b"hello from server");
