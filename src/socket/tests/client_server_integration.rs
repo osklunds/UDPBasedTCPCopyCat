@@ -211,6 +211,74 @@ fn random_simultaneous_reads_and_writes_high_load() {
     listener.wait_shutdown_complete();
 }
 
+#[test]
+fn one_client_proxy() {
+    let localhost_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+
+    let mut listener = Listener::bind(localhost_addr).unwrap();
+    let server_addr = listener.local_addr().unwrap();
+
+    let proxy_socket = UdpSocket::bind(localhost_addr).unwrap();
+    let proxy_addr = proxy_socket.local_addr().unwrap();
+
+    let _proxy_thread = thread::spawn(move || {
+        let mut client_addr = None;
+
+        loop {
+            let mut buf = [0; 4096];
+            let (amt, recv_addr) = proxy_socket.recv_from(&mut buf).unwrap();
+            let recv_data = &buf[0..amt];
+
+            let segment = Segment::decode(&buf[0..amt]).unwrap();
+            println!("{:?}", segment);
+
+            // Data from server
+            if recv_addr == server_addr {
+                proxy_socket.send_to(&buf[0..amt], client_addr.unwrap()).unwrap();
+            }
+            // Data from client
+            else {
+                // client addr can't be known at start. Only when client
+                // connects does it become known
+                if client_addr == None {
+                    client_addr = Some(recv_addr);
+                } else {
+                    assert_eq!(Some(recv_addr), client_addr);
+                }
+
+                proxy_socket.send_to(&buf[0..amt], server_addr).unwrap();
+            }
+        }
+    });
+
+    // Let proxy have time to start
+    // TODO: Change to "ready" channel
+    std::thread::sleep(Duration::from_millis(1));
+
+    let connect_client_thread = thread::spawn(move || {
+        Stream::connect(proxy_addr).unwrap()
+    });
+
+    let (mut server_stream, _client_addr_from_server) = listener.accept().unwrap();
+    let mut client_stream = connect_client_thread.join().unwrap();
+
+    write_and_read(&mut server_stream, &mut client_stream, b"hello from server");
+    write_and_read(&mut client_stream, &mut server_stream, b"hello from client");
+
+    write_and_read(&mut client_stream, &mut server_stream, b"a");
+    write_and_read(&mut server_stream, &mut client_stream, b"b");
+
+    write_and_read(&mut client_stream, &mut server_stream, b"short msg");
+    write_and_read(&mut server_stream, &mut client_stream, b"loooooooong messe");
+
+    client_stream.shutdown();
+    server_stream.shutdown();
+    client_stream.wait_shutdown_complete();
+    server_stream.wait_shutdown_complete();
+    listener.shutdown_all();
+    listener.wait_shutdown_complete();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
