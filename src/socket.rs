@@ -417,11 +417,19 @@ impl<T: Timer> Server<T> {
                                 mut connection,
                                 socket_send_rx,
                                 shutdown_complete_tx,
+                                timer
                             )),
                         ) => {
                             futures.push(Box::pin(async move {
-                                let timer = Arc::new(PlainTimer {});
-                                connection.run(timer).await;
+                                match timer {
+                                    Some(timer) => {
+                                        connection.run(Arc::new(timer)).await;
+                                    }
+                                    None => {
+                                        connection.run(Arc::new(PlainTimer {})).await;
+                                    }
+                                };
+
                                 shutdown_complete_tx.send(()).await.unwrap();
                                 ServerSelectResult::RecvUserAction(None)
                             }));
@@ -491,7 +499,7 @@ impl<T: Timer> Server<T> {
         // TODO: Make return look better
     ) -> (
         bool,
-        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>)>,
+        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<T>)>,
     ) {
         // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
@@ -511,16 +519,16 @@ impl<T: Timer> Server<T> {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>) {
+    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<T>) {
         // println!("{:?}", "handle syn");
 
-        let mut send_next = match &mut self.custom_accept_data {
+        let (mut send_next, timer) = match &mut self.custom_accept_data {
             None => {
-                rand::random()
+                (rand::random(), None)
             },
             Some(custom_accept_data) => {
                 let data = custom_accept_data.remove(0);
-                data.init_seq_num
+                (data.init_seq_num, Some(data.timer))
             }
         };
 
@@ -578,7 +586,7 @@ impl<T: Timer> Server<T> {
         // TODO: Handle duplicate syn etc
         // TODO: Only one shared socket_send_rx
 
-        (connection, socket_send_rx, shutdown_complete_tx)
+        (connection, socket_send_rx, shutdown_complete_tx, timer)
     }
 }
 
