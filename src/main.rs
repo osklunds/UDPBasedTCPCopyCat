@@ -9,6 +9,7 @@ use socket::Stream;
 use std::env;
 use std::net::SocketAddr;
 use std::io::Read;
+use std::path::Path;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -24,19 +25,29 @@ fn main() {
         let all_addr: SocketAddr = all_addr.parse().unwrap();
         let listener = Listener::bind(all_addr).unwrap();
         println!("Listening to {:?}", listener.local_addr().unwrap());
+        println!("");
 
         loop {
-            let (mut stream, _client_addr) = listener.accept().unwrap();
-            println!("{:?}", "Got connection");
+            let (mut stream, client_addr) = listener.accept().unwrap();
+            println!("Connection from {:?}", client_addr);
             let path = read_to_end(&mut stream);
             let path = std::str::from_utf8(&path).unwrap();
-            println!("{:?}", path);
+            println!("Sending file at {:?}", path);
 
-            let file = std::fs::read(path).unwrap();
+            let file = match std::fs::read(path) {
+                Ok(file) => file,
+                Err(_) => {
+                    let msg = "Can't find or open file";
+                    println!("{}", msg);
+                    msg.as_bytes().to_vec()
+                }
+            };
             stream.write(&file).unwrap();
 
             stream.shutdown();
             stream.wait_shutdown_complete();
+
+            println!("");
         }
     } else if mode == "client" {
         let server_addr = &args[2];
@@ -50,15 +61,17 @@ fn main() {
         stream.shutdown();
 
         let file = read_to_end(&mut stream);
-        println!("{:?}", file);
 
         stream.wait_shutdown_complete();
 
-        let mut local_path = path.to_owned();
+        let local_path = Path::new(&path);
+        let local_path = local_path.file_name().unwrap();
+        let mut local_path = local_path.to_str().unwrap().to_owned();
         local_path.push_str(".download");
 
-        std::fs::write(local_path, file).unwrap();
+        std::fs::write(local_path.clone(), file).unwrap();
 
+        println!("Saved file to {:?}", local_path);
     } else {
         panic!("Incorrect mode");
     }
