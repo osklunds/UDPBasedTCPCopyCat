@@ -5,6 +5,7 @@ use async_std::future;
 use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
 use std::time::Duration;
+use std::cmp;
 
 #[test]
 fn one_client() {
@@ -158,6 +159,58 @@ fn multiple_clients() {
     listener.wait_shutdown_complete();
 }
 
+#[test]
+fn random_simultaneous_reads_and_writes_high_load() {
+    let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
+
+    let mut listener = Listener::bind(initial_addr).unwrap();
+    let server_addr = listener.local_addr().unwrap();
+
+    let client_writes = random_datas(1000);
+    let all_client_data = concat_datas(&client_writes);
+
+    let server_writes = random_datas(1000);
+    let all_server_data = concat_datas(&server_writes);
+
+    let client_thread = thread::spawn(move || {
+        let mut client_stream = Stream::connect(server_addr).unwrap();
+
+        for data in client_writes {
+            client_stream.write(&data).unwrap();
+        }
+
+        let mut read_data = vec![0; all_server_data.len()];
+        client_stream.read_exact(&mut read_data).unwrap();
+
+        assert_eq!(all_server_data, read_data);
+        client_stream.shutdown();
+        client_stream.wait_shutdown_complete();
+    });
+
+    let (mut server_stream, _client_addr) = listener.accept().unwrap();
+
+    let server_thread = thread::spawn(move || {
+        for data in server_writes {
+            server_stream.write(&data).unwrap();
+        }
+
+        let mut read_data = vec![0; all_client_data.len()];
+        server_stream.read_exact(&mut read_data).unwrap();
+
+        assert_eq!(all_client_data, read_data);
+
+
+        server_stream.shutdown();
+        server_stream.wait_shutdown_complete();
+    });
+
+    client_thread.join().unwrap();
+    server_thread.join().unwrap();
+
+    listener.shutdown_all();
+    listener.wait_shutdown_complete();
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
@@ -170,5 +223,34 @@ fn write_and_read(writer_stream: &mut Stream, reader_stream: &mut Stream, data: 
     assert_ne!(read_data, data);
     reader_stream.read_exact(&mut read_data).unwrap();
     assert_eq!(read_data, data);
+}
+
+fn random_datas(number_of_datas: u32) -> Vec<Vec<u8>> {
+    let mut datas = Vec::new();
+
+    for _ in 0..number_of_datas {
+        let len = cmp::max(rand::random::<u32>() % MAXIMUM_SEGMENT_SIZE, 1);
+        datas.push(random_data_of_length(len));
+    }
+
+    datas
+}
+
+fn random_data_of_length(length: u32) -> Vec<u8> {
+    let mut data: Vec<u8> = Vec::new();
+    for _ in 0..length {
+        data.push(rand::random());
+    }
+    data
+}
+
+fn concat_datas(datas: &Vec<Vec<u8>>) -> Vec<u8> {
+    let mut all = Vec::new();
+
+    for data in datas {
+        all.extend_from_slice(data);
+    }
+
+    all
 }
 
