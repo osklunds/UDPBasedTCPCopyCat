@@ -334,8 +334,6 @@ fn one_client_proxy() {
         let act_kind = act_seg.kind();
         let act_data = str::from_utf8(act_seg.data()).unwrap();
 
-        println!("{:?}", exp);
-
         assert_eq!(exp, (act_from, act_kind, act_data));
     }
 
