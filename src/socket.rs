@@ -203,7 +203,7 @@ impl Stream {
         let (user_action_tx, user_action_rx) = async_channel::unbounded();
 
         let any_addr: SocketAddr = "0.0.0.0:0".parse().unwrap();
-        
+
         match block_on(UdpSocket::bind(any_addr)) {
             Ok(udp_socket) => {
                 let (send_next, receive_next) = block_on(async {
@@ -234,7 +234,7 @@ impl Stream {
                     shutdown_sent: false,
                     read_timeout: None,
                     last_data: None,
-                    local_addr 
+                    local_addr,
                 };
                 Ok(stream)
             }
@@ -599,7 +599,7 @@ impl<T: Timer> Server<T> {
             shutdown_sent: false,
             read_timeout: None,
             last_data: None,
-            local_addr: self.udp_socket.local_addr().unwrap()
+            local_addr: self.udp_socket.local_addr().unwrap(),
         };
 
         assert!(self

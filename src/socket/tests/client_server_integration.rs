@@ -1,11 +1,11 @@
-
 use super::*;
 
 use async_std::future;
+use std::cmp;
 use std::io::{Error, ErrorKind};
 use std::net::{UdpSocket, *};
+use std::sync::mpsc;
 use std::time::Duration;
-use std::cmp;
 
 #[test]
 fn one_client() {
@@ -14,9 +14,8 @@ fn one_client() {
     let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
-    let connect_client_thread = thread::spawn(move || {
-        Stream::connect(server_addr).unwrap()
-    });
+    let connect_client_thread =
+        thread::spawn(move || Stream::connect(server_addr).unwrap());
 
     let (mut server_stream, client_addr) = listener.accept().unwrap();
 
@@ -26,14 +25,26 @@ fn one_client() {
     assert_eq!(server_addr, server_stream.local_addr().unwrap());
     assert_ne!(client_addr, server_addr);
 
-    write_and_read(&mut server_stream, &mut client_stream, b"hello from server");
-    write_and_read(&mut client_stream, &mut server_stream, b"hello from client");
+    write_and_read(
+        &mut server_stream,
+        &mut client_stream,
+        b"hello from server",
+    );
+    write_and_read(
+        &mut client_stream,
+        &mut server_stream,
+        b"hello from client",
+    );
 
     write_and_read(&mut client_stream, &mut server_stream, b"a");
     write_and_read(&mut server_stream, &mut client_stream, b"b");
 
     write_and_read(&mut client_stream, &mut server_stream, b"short msg");
-    write_and_read(&mut server_stream, &mut client_stream, b"loooooooong messe");
+    write_and_read(
+        &mut server_stream,
+        &mut client_stream,
+        b"loooooooong messe",
+    );
 
     client_stream.shutdown();
     server_stream.shutdown();
@@ -58,9 +69,8 @@ fn multiple_clients() {
     // Connect client 1
     //////////////////////////////////////////////////////////////////
 
-    let connect_client_thread1 = thread::spawn(move || {
-        Stream::connect(server_addr).unwrap()
-    });
+    let connect_client_thread1 =
+        thread::spawn(move || Stream::connect(server_addr).unwrap());
     let (mut server_stream1, client1_addr) = listener.accept().unwrap();
     let mut client_stream1 = connect_client_thread1.join().unwrap();
 
@@ -72,9 +82,8 @@ fn multiple_clients() {
     // Connect client 2
     //////////////////////////////////////////////////////////////////
 
-    let connect_client_thread2 = thread::spawn(move || {
-        Stream::connect(server_addr).unwrap()
-    });
+    let connect_client_thread2 =
+        thread::spawn(move || Stream::connect(server_addr).unwrap());
     let (mut server_stream2, client2_addr) = listener.accept().unwrap();
     let mut client_stream2 = connect_client_thread2.join().unwrap();
 
@@ -88,18 +97,33 @@ fn multiple_clients() {
     // Read and write
     //////////////////////////////////////////////////////////////////
 
-    write_and_read(&mut server_stream1, &mut client_stream1, b"from server 1 to client 1");
-    write_and_read(&mut server_stream2, &mut client_stream2, b"from server 2 to client 2");
-    write_and_read(&mut client_stream1, &mut server_stream1, b"from client 1 to server 1");
-    write_and_read(&mut client_stream2, &mut server_stream2, b"from client 2 to server 2");
+    write_and_read(
+        &mut server_stream1,
+        &mut client_stream1,
+        b"from server 1 to client 1",
+    );
+    write_and_read(
+        &mut server_stream2,
+        &mut client_stream2,
+        b"from server 2 to client 2",
+    );
+    write_and_read(
+        &mut client_stream1,
+        &mut server_stream1,
+        b"from client 1 to server 1",
+    );
+    write_and_read(
+        &mut client_stream2,
+        &mut server_stream2,
+        b"from client 2 to server 2",
+    );
 
     //////////////////////////////////////////////////////////////////
     // Connect client 3
     //////////////////////////////////////////////////////////////////
 
-    let connect_client_thread3 = thread::spawn(move || {
-        Stream::connect(server_addr).unwrap()
-    });
+    let connect_client_thread3 =
+        thread::spawn(move || Stream::connect(server_addr).unwrap());
     let (mut server_stream3, client3_addr) = listener.accept().unwrap();
     let mut client_stream3 = connect_client_thread3.join().unwrap();
 
@@ -199,7 +223,6 @@ fn random_simultaneous_reads_and_writes_high_load() {
 
         assert_eq!(all_client_data, read_data);
 
-
         server_stream.shutdown();
         server_stream.wait_shutdown_complete();
     });
@@ -221,20 +244,19 @@ fn one_client_proxy() {
     let proxy_socket = UdpSocket::bind(localhost_addr).unwrap();
     let proxy_addr = proxy_socket.local_addr().unwrap();
 
+    let (proxy_info_tx, proxy_info_rx) = mpsc::channel();
+
     let _proxy_thread = thread::spawn(move || {
         let mut client_addr = None;
 
         loop {
             let mut buf = [0; 4096];
             let (amt, recv_addr) = proxy_socket.recv_from(&mut buf).unwrap();
-            let recv_data = &buf[0..amt];
-
-            let segment = Segment::decode(recv_data).unwrap();
-            println!("{:?}", segment);
+            let recv_data = buf[0..amt].to_vec();
 
             // Data from server
-            if recv_addr == server_addr {
-                proxy_socket.send_to(recv_data, client_addr.unwrap()).unwrap();
+            let to = if recv_addr == server_addr {
+                client_addr.unwrap()
             }
             // Data from client
             else {
@@ -246,26 +268,36 @@ fn one_client_proxy() {
                     assert_eq!(Some(recv_addr), client_addr);
                 }
 
-                proxy_socket.send_to(recv_data, server_addr).unwrap();
-            }
+                server_addr
+            };
+            proxy_socket.send_to(&recv_data, to).unwrap();
+            proxy_info_tx.send((recv_data, to)).unwrap();
         }
     });
 
-    let connect_client_thread = thread::spawn(move || {
-        Stream::connect(proxy_addr).unwrap()
-    });
+    let connect_client_thread =
+        thread::spawn(move || Stream::connect(proxy_addr).unwrap());
 
-    let (mut server_stream, _client_addr_from_server) = listener.accept().unwrap();
+    let (mut server_stream, _client_addr_from_server) =
+        listener.accept().unwrap();
     let mut client_stream = connect_client_thread.join().unwrap();
 
-    write_and_read(&mut server_stream, &mut client_stream, b"hello from server");
-    write_and_read(&mut client_stream, &mut server_stream, b"hello from client");
+    write_and_read(
+        &mut server_stream,
+        &mut client_stream,
+        b"hello from server",
+    );
+    write_and_read(
+        &mut client_stream,
+        &mut server_stream,
+        b"hello from client",
+    );
 
     write_and_read(&mut client_stream, &mut server_stream, b"a");
     write_and_read(&mut server_stream, &mut client_stream, b"b");
 
     write_and_read(&mut client_stream, &mut server_stream, b"short msg");
-    write_and_read(&mut server_stream, &mut client_stream, b"loooooooong messe");
+    write_and_read(&mut server_stream, &mut client_stream, b"other");
 
     client_stream.shutdown();
     server_stream.shutdown();
@@ -273,13 +305,29 @@ fn one_client_proxy() {
     server_stream.wait_shutdown_complete();
     listener.shutdown_all();
     listener.wait_shutdown_complete();
+
+    let mut proxy_info = Vec::new();
+    loop {
+        match proxy_info_rx.try_recv() {
+            Ok(info) => proxy_info.push(info),
+            Err(_) => break
+        }
+    }
+
+    for (data, to) in proxy_info {
+        println!("Sending '{:?}' to {:?}", Segment::decode(&data).unwrap(), to);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
 
-fn write_and_read(writer_stream: &mut Stream, reader_stream: &mut Stream, data: &[u8]) {
+fn write_and_read(
+    writer_stream: &mut Stream,
+    reader_stream: &mut Stream,
+    data: &[u8],
+) {
     let mut read_data = vec![0; data.len()];
 
     writer_stream.write(data).unwrap();
@@ -317,4 +365,3 @@ fn concat_datas(datas: &Vec<Vec<u8>>) -> Vec<u8> {
 
     all
 }
-
