@@ -101,7 +101,7 @@ enum UserAction {
 }
 
 struct CustomAcceptData<T> {
-    timer: T,
+    timer: Arc<T>,
     init_seq_num: u32,
 }
 
@@ -110,7 +110,7 @@ impl Listener {
         Self::bind_custom::<A, PlainTimer>(local_addr, None)
     }
 
-    fn bind_custom<A: ToSocketAddrs, T: Timer + Send + 'static>(
+    fn bind_custom<A: ToSocketAddrs, T: Timer + Send + Sync + 'static>(
         local_addr: A,
         custom_accept_data: Option<Vec<CustomAcceptData<T>>>,
     ) -> Result<Listener> {
@@ -423,7 +423,7 @@ impl<T: Timer> Server<T> {
                             futures.push(Box::pin(async move {
                                 match timer {
                                     Some(timer) => {
-                                        connection.run(Arc::new(timer)).await;
+                                        connection.run(timer).await;
                                     }
                                     None => {
                                         connection.run(Arc::new(PlainTimer {})).await;
@@ -499,7 +499,7 @@ impl<T: Timer> Server<T> {
         // TODO: Make return look better
     ) -> (
         bool,
-        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<T>)>,
+        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<Arc<T>>)>,
     ) {
         // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
@@ -519,7 +519,7 @@ impl<T: Timer> Server<T> {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<T>) {
+    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<Arc<T>>) {
         // println!("{:?}", "handle syn");
 
         let (mut send_next, timer) = match &mut self.custom_accept_data {

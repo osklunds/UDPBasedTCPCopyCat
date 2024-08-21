@@ -14,8 +14,12 @@ use crate::segment::Segment;
 fn explicit_sequence_numbers_one_client() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
+    let timer = Arc::new(MockTimer::new());
+    let timer_cloned = Arc::clone(&timer);
+    let timer_connect = Arc::clone(&timer);
+
     let data1 = CustomAcceptData {
-        timer: PlainTimer {},
+        timer: timer_cloned,
         init_seq_num: 1000
     };
     let custom_accept_data = Some(vec![data1]);
@@ -35,13 +39,16 @@ fn explicit_sequence_numbers_one_client() {
         UdpSocket::connect(&client_socket, server_addr).unwrap();
 
         // Send SYN
+        timer_connect.expect_stop();
         let syn = Segment::new_empty(Syn, 2000, 0);
         send_segment_to(&client_socket, server_addr, &syn);
+
+        // As soon as get SYN, SYN-ACK is sent, and then goes to sleep
+        timer_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client_socket, server_addr);
 
-        // TODO: 1000 is hard coded. Need to change
         let exp_syn_ack = Segment::new_empty(SynAck, 1000, 2001);
         assert_eq!(exp_syn_ack, syn_ack);
 
@@ -62,14 +69,18 @@ fn explicit_sequence_numbers_one_client() {
     // Write #1
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.write(b"hello").unwrap();
+    timer.wait_for_call();
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write1, seg_write1);
 
+    timer.expect_stop();
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&client_socket, server_addr, &ack_seg_write1);
+    timer.wait_for_call();
 
     // println!("write1 done");
 
@@ -77,14 +88,18 @@ fn explicit_sequence_numbers_one_client() {
     // Write #2
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.write(b"more").unwrap();
+    timer.wait_for_call();
 
     let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
     let seg_write2 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write2, seg_write2);
 
+    timer.expect_stop();
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&client_socket, server_addr, &ack_seg_write2);
+    timer.wait_for_call();
 
     // println!("write2 done");
 
@@ -105,14 +120,18 @@ fn explicit_sequence_numbers_one_client() {
     // Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.shutdown();
+    timer.wait_for_call();
 
     let exp_fin = Segment::new_empty(Fin, 1010, 2015);
     let fin_from_uut = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
+    timer.expect_stop();
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
     send_segment_to(&client_socket, server_addr, &ack_to_fin_from_uut);
+    timer.wait_for_call();
 
     //////////////////////////////////////////////////////////////////
     // Shutdown from tc
@@ -138,11 +157,11 @@ fn explicit_sequence_numbers_two_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     let data1 = CustomAcceptData {
-        timer: PlainTimer {},
+        timer: Arc::new(PlainTimer {}),
         init_seq_num: 1000
     };
     let data2 = CustomAcceptData {
-        timer: PlainTimer {},
+        timer: Arc::new(PlainTimer {}),
         init_seq_num: 5000
     };
     let custom_accept_data = Some(vec![data1, data2]);
