@@ -12,6 +12,9 @@ use std::io::Read;
 use std::path::Path;
 use std::time::{Instant};
 
+const BYTES_PER_MEGABYTE: f64 = 1000_000.0;
+const BITS_PER_BYTE: f64 = 8.0;
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -62,7 +65,7 @@ fn main() {
         stream.shutdown();
 
         let start = Instant::now();
-        let file = read_to_end(&mut stream);
+        let file = read_all_chunked(&mut stream);
         let elapsed = start.elapsed().as_secs() as f64;
 
         stream.wait_shutdown_complete();
@@ -72,25 +75,62 @@ fn main() {
         let mut local_path = local_path.to_str().unwrap().to_owned();
         local_path.push_str(".download");
 
-        let size_in_bytes = file.len() as f64;
+        let size_in_bytes = file.len();
         std::fs::write(local_path.clone(), file).unwrap();
+
+        print_speed(elapsed, size_in_bytes);
 
         println!("Saved file to {:?}", local_path);
 
-        const BYTES_PER_MEGABYTE: f64 = 1000_000.0;
-        const BITS_PER_BYTE: f64 = 8.0;
-
-        let size_in_megabytes = size_in_bytes / BYTES_PER_MEGABYTE;
-        let speed = (size_in_bytes * BITS_PER_BYTE) / (elapsed * BYTES_PER_MEGABYTE);
-
-        println!("Downloaded {:.2} MB ({} bytes) in {:.2} seconds ({:.2} Mbit/s)",
-                 size_in_megabytes,
-                 size_in_bytes,
-                 elapsed,
-                 speed
-                 );
     } else {
         panic!("Incorrect mode");
+    }
+}
+
+fn read_all_chunked(stream: &mut Stream) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    loop {
+        let start = Instant::now();
+        let chunk = read_chunk(stream);
+        let elapsed = start.elapsed().as_millis() as f64 / 1000.0;
+
+        buf.extend_from_slice(&chunk);
+
+        if chunk.len() == 0 {
+            return buf;
+        } else {
+            print_speed(elapsed, chunk.len());
+        }
+    }
+}
+
+fn print_speed(elapsed: f64, size_in_bytes: usize) {
+    let size_in_megabytes = (size_in_bytes as f64) / BYTES_PER_MEGABYTE;
+    let speed = (size_in_bytes as f64 * BITS_PER_BYTE) / (elapsed * BYTES_PER_MEGABYTE);
+
+    println!("Downloaded {:.2} MB ({} bytes) in {:.2} seconds ({:.2} Mbit/s)",
+             size_in_megabytes,
+             size_in_bytes,
+             elapsed,
+             speed
+    );
+}
+
+fn read_chunk(stream: &mut Stream) -> Vec<u8> {
+    let mut buf = Vec::new();
+
+    loop {
+        let mut inner = [0; 4096];
+        match stream.read(&mut inner).unwrap() {
+            0 => return buf,
+            n => {
+                buf.extend_from_slice(&inner[0..n]);
+                if buf.len() > BYTES_PER_MEGABYTE as usize {
+                    return buf;
+                }
+            }
+        }
     }
 }
 

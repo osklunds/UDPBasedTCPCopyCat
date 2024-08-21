@@ -350,7 +350,8 @@ impl Stream {
                     PeerAction::EOF => Ok(Vec::new()),
                 },
                 Err(async_channel::RecvError) => {
-                    todo!()
+                    // TODO: Get test case coverage
+                    Ok(Vec::new())
                 }
             },
             Err(future::TimeoutError { .. }) => {
