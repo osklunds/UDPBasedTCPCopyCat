@@ -10,6 +10,7 @@ use std::env;
 use std::net::SocketAddr;
 use std::io::Read;
 use std::path::Path;
+use std::time::{Instant};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -60,7 +61,9 @@ fn main() {
         stream.write(path.as_bytes()).unwrap();
         stream.shutdown();
 
+        let start = Instant::now();
         let file = read_to_end(&mut stream);
+        let elapsed = start.elapsed().as_secs() as f64;
 
         stream.wait_shutdown_complete();
 
@@ -69,9 +72,23 @@ fn main() {
         let mut local_path = local_path.to_str().unwrap().to_owned();
         local_path.push_str(".download");
 
+        let size_in_bytes = file.len() as f64;
         std::fs::write(local_path.clone(), file).unwrap();
 
         println!("Saved file to {:?}", local_path);
+
+        const BYTES_PER_MEGABYTE: f64 = 1000_000.0;
+        const BITS_PER_BYTE: f64 = 8.0;
+
+        let size_in_megabytes = size_in_bytes / BYTES_PER_MEGABYTE;
+        let speed = (size_in_bytes * BITS_PER_BYTE) / (elapsed * BYTES_PER_MEGABYTE);
+
+        println!("Downloaded {:.2} MB ({} bytes) in {:.2} seconds ({:.2} Mbit/s)",
+                 size_in_megabytes,
+                 size_in_bytes,
+                 elapsed,
+                 speed
+                 );
     } else {
         panic!("Incorrect mode");
     }
