@@ -98,10 +98,10 @@ impl MockTimer {
 #[async_trait]
 impl Timer for MockTimer {
     async fn sleep(&self, duration: SleepDuration) {
-        let exp_duration = self
-            .expect_sleep_rx
-            .try_recv()
-            .expect("Sleep called but not expectation set up");
+        let exp_duration = self.expect_sleep_rx.try_recv().expect(&format!(
+            "Sleep called but not expectation set up, duration: {:?}",
+            duration
+        ));
         assert_eq!(exp_duration, duration);
         self.sleep_called_tx.try_send(()).unwrap();
         self.let_sleep_return_rx.recv().await.unwrap();

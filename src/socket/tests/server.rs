@@ -14,13 +14,18 @@ use crate::segment::Segment;
 fn explicit_sequence_numbers_one_client() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
+    let timer = Arc::new(MockTimer::new());
+    let timer_cloned = Arc::clone(&timer);
+    let timer_connect = Arc::clone(&timer);
+
     let data1 = CustomAcceptData {
-        timer: PlainTimer {},
-        init_seq_num: 1000
+        timer: timer_cloned,
+        init_seq_num: 1000,
     };
     let custom_accept_data = Some(vec![data1]);
 
-    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
+    let mut listener =
+        Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -35,13 +40,16 @@ fn explicit_sequence_numbers_one_client() {
         UdpSocket::connect(&client_socket, server_addr).unwrap();
 
         // Send SYN
+        timer_connect.expect_stop();
         let syn = Segment::new_empty(Syn, 2000, 0);
         send_segment_to(&client_socket, server_addr, &syn);
+
+        // As soon as get SYN, SYN-ACK is sent, and then goes to sleep
+        timer_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client_socket, server_addr);
 
-        // TODO: 1000 is hard coded. Need to change
         let exp_syn_ack = Segment::new_empty(SynAck, 1000, 2001);
         assert_eq!(exp_syn_ack, syn_ack);
 
@@ -62,14 +70,18 @@ fn explicit_sequence_numbers_one_client() {
     // Write #1
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.write(b"hello").unwrap();
+    timer.wait_for_call();
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write1, seg_write1);
 
+    timer.expect_stop();
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&client_socket, server_addr, &ack_seg_write1);
+    timer.wait_for_call();
 
     // println!("write1 done");
 
@@ -77,14 +89,18 @@ fn explicit_sequence_numbers_one_client() {
     // Write #2
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.write(b"more").unwrap();
+    timer.wait_for_call();
 
     let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
     let seg_write2 = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_seg_write2, seg_write2);
 
+    timer.expect_stop();
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&client_socket, server_addr, &ack_seg_write2);
+    timer.wait_for_call();
 
     // println!("write2 done");
 
@@ -105,14 +121,18 @@ fn explicit_sequence_numbers_one_client() {
     // Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
+    timer.expect_start();
     uut_stream.shutdown();
+    timer.wait_for_call();
 
     let exp_fin = Segment::new_empty(Fin, 1010, 2015);
     let fin_from_uut = recv_segment_from(&client_socket, server_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
+    timer.expect_stop();
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
     send_segment_to(&client_socket, server_addr, &ack_to_fin_from_uut);
+    timer.wait_for_call();
 
     //////////////////////////////////////////////////////////////////
     // Shutdown from tc
@@ -137,17 +157,25 @@ fn explicit_sequence_numbers_one_client() {
 fn explicit_sequence_numbers_two_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
+    let timer1 = Arc::new(MockTimer::new());
+    let timer1_cloned = Arc::clone(&timer1);
+    let timer1_connect = Arc::clone(&timer1);
     let data1 = CustomAcceptData {
-        timer: PlainTimer {},
-        init_seq_num: 1000
+        timer: timer1_cloned,
+        init_seq_num: 1000,
     };
+
+    let timer2 = Arc::new(MockTimer::new());
+    let timer2_cloned = Arc::clone(&timer2);
+    let timer2_connect = Arc::clone(&timer2);
     let data2 = CustomAcceptData {
-        timer: PlainTimer {},
-        init_seq_num: 5000
+        timer: timer2_cloned,
+        init_seq_num: 5000,
     };
     let custom_accept_data = Some(vec![data1, data2]);
 
-    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
+    let mut listener =
+        Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -162,8 +190,10 @@ fn explicit_sequence_numbers_two_clients() {
         UdpSocket::connect(&client1_socket, server_addr).unwrap();
 
         // Send SYN
+        timer1_connect.expect_stop();
         let syn = Segment::new_empty(Syn, 2000, 0);
         send_segment_to(&client1_socket, server_addr, &syn);
+        timer1_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client1_socket, server_addr);
@@ -196,8 +226,10 @@ fn explicit_sequence_numbers_two_clients() {
         UdpSocket::connect(&client2_socket, server_addr).unwrap();
 
         // Send SYN
+        timer2_connect.expect_stop();
         let syn = Segment::new_empty(Syn, 3000, 0);
         send_segment_to(&client2_socket, server_addr, &syn);
+        timer2_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client2_socket, server_addr);
@@ -223,14 +255,18 @@ fn explicit_sequence_numbers_two_clients() {
     // Write #1 - client 1
     //////////////////////////////////////////////////////////////////
 
+    timer1.expect_start();
     uut_stream1.write(b"hello").unwrap();
+    timer1.wait_for_call();
 
     let exp_seg_write1 = Segment::new(Ack, 1001, 2001, b"hello");
     let seg_write1 = recv_segment_from(&client1_socket, server_addr);
     assert_eq!(exp_seg_write1, seg_write1);
 
+    timer1.expect_stop();
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 1006);
     send_segment_to(&client1_socket, server_addr, &ack_seg_write1);
+    timer1.wait_for_call();
 
     // println!("write1 client1 done");
 
@@ -238,14 +274,18 @@ fn explicit_sequence_numbers_two_clients() {
     // Write #1 - client 2
     //////////////////////////////////////////////////////////////////
 
+    timer2.expect_start();
     uut_stream2.write(b"hej").unwrap();
+    timer2.wait_for_call();
 
     let exp_seg_write1_client2 = Segment::new(Ack, 5001, 3001, b"hej");
     let seg_write1_client2 = recv_segment_from(&client2_socket, server_addr);
     assert_eq!(exp_seg_write1_client2, seg_write1_client2);
 
+    timer2.expect_stop();
     let ack_seg_write1 = Segment::new_empty(Ack, 2001, 5004);
     send_segment_to(&client2_socket, server_addr, &ack_seg_write1);
+    timer2.wait_for_call();
 
     // println!("write1 client2 done");
 
@@ -253,14 +293,18 @@ fn explicit_sequence_numbers_two_clients() {
     // Write #2
     //////////////////////////////////////////////////////////////////
 
+    timer1.expect_start();
     uut_stream1.write(b"more").unwrap();
+    timer1.wait_for_call();
 
     let exp_seg_write2 = Segment::new(Ack, 1006, 2001, b"more");
     let seg_write2 = recv_segment_from(&client1_socket, server_addr);
     assert_eq!(exp_seg_write2, seg_write2);
 
+    timer1.expect_stop();
     let ack_seg_write2 = Segment::new_empty(Ack, 2001, 1010);
     send_segment_to(&client1_socket, server_addr, &ack_seg_write2);
+    timer1.wait_for_call();
 
     // println!("write2 done");
 
@@ -281,14 +325,18 @@ fn explicit_sequence_numbers_two_clients() {
     // Client1: Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
+    timer1.expect_start();
     uut_stream1.shutdown();
+    timer1.wait_for_call();
 
     let exp_fin = Segment::new_empty(Fin, 1010, 2015);
     let fin_from_uut = recv_segment_from(&client1_socket, server_addr);
     assert_eq!(exp_fin, fin_from_uut);
 
+    timer1.expect_stop();
     let ack_to_fin_from_uut = Segment::new_empty(Ack, 2015, 1011);
     send_segment_to(&client1_socket, server_addr, &ack_to_fin_from_uut);
+    timer1.wait_for_call();
 
     //////////////////////////////////////////////////////////////////
     // Client1: Shutdown from tc
@@ -320,7 +368,9 @@ fn explicit_sequence_numbers_two_clients() {
     // Client2: Shutdown from uut
     //////////////////////////////////////////////////////////////////
 
+    timer2.expect_start();
     uut_stream2.shutdown();
+    timer2.wait_for_call();
 
     let exp_fin = Segment::new_empty(Fin, 5004, 3002);
     let fin_from_uut = recv_segment_from(&client2_socket, server_addr);
@@ -342,9 +392,10 @@ fn explicit_sequence_numbers_two_clients() {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn reads_and_writes() {
-    let mut listener_state = uut_listen();
-    let mut stream_state = uut_accept(&listener_state);
+fn reads_and_writes_one_client() {
+    let mut listener_state = uut_listen(1);
+
+    let mut stream_state = uut_accept(&mut listener_state);
 
     uut_write_with_tc_ack(&mut stream_state, b"some data");
     uut_read(&mut stream_state, b"some data to read");
@@ -358,11 +409,12 @@ fn reads_and_writes() {
 
 #[test]
 fn reads_and_writes_multiple_clients() {
-    let mut listener_state = uut_listen();
+    let mut listener_state = uut_listen(3);
+
     // TODO: Interleaved accepts/reads/writes in other TC
-    let mut stream_state1 = uut_accept(&listener_state);
-    let mut stream_state2 = uut_accept(&listener_state);
-    let mut stream_state3 = uut_accept(&listener_state);
+    let mut stream_state1 = uut_accept(&mut listener_state);
+    let mut stream_state2 = uut_accept(&mut listener_state);
+    let mut stream_state3 = uut_accept(&mut listener_state);
 
     uut_write_with_tc_ack(&mut stream_state1, b"one");
     uut_write_with_tc_ack(&mut stream_state2, b"two");
@@ -386,33 +438,64 @@ fn reads_and_writes_multiple_clients() {
 
 #[test]
 fn interleaved_reads_and_write_from_multiple_clients() {
-    let mut listener_state = uut_listen();
+    let mut listener_state = uut_listen(3);
 
-    let mut stream_state1 = uut_accept(&listener_state);
-    let mut stream_state2 = uut_accept(&listener_state);
-    let mut stream_state3 = uut_accept(&listener_state);
+    let mut stream_state1 = uut_accept(&mut listener_state);
+    let mut stream_state2 = uut_accept(&mut listener_state);
+    let mut stream_state3 = uut_accept(&mut listener_state);
 
     // Random interleaved reads and writes
+    stream_state1.timer.expect_start();
     uut_write(&mut stream_state1, b"1");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"2");
+    stream_state2.timer.wait_for_call();
+
     uut_read(&mut stream_state3, b"3");
+
+    stream_state2.timer.expect_stop();
     send_tc_ack(&mut stream_state2);
+    stream_state2.timer.wait_for_call();
+
     uut_read(&mut stream_state2, b"4");
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"5");
+    stream_state2.timer.wait_for_call();
+
+    stream_state1.timer.expect_stop();
     send_tc_ack(&mut stream_state1);
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_stop();
     send_tc_ack(&mut stream_state2);
+    stream_state2.timer.wait_for_call();
 
     // For both streams, the server- and client-sides, respectivly,
     // write and read at the same time. I.e. packets passing each other
     // on the wire.
+    // TODO: But tc sends too high ack num in the reads, so testing
+    // cumulative ack rather than true simultaneous. Consider fixing this.
+    stream_state1.timer.expect_start();
     uut_write(&mut stream_state1, b"a");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"b");
-    uut_read(&mut stream_state1, b"c");
-    uut_read(&mut stream_state2, b"d");
+    stream_state2.timer.wait_for_call();
+
     uut_write(&mut stream_state1, b"e");
     uut_write(&mut stream_state2, b"f");
-    send_tc_ack(&mut stream_state1);
-    send_tc_ack(&mut stream_state2);
+
+    stream_state1.timer.expect_stop();
+    uut_read(&mut stream_state1, b"c");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_stop();
+    uut_read(&mut stream_state2, b"d");
+    stream_state2.timer.wait_for_call();
 
     shutdown(stream_state1);
     shutdown(stream_state2);
@@ -429,14 +512,33 @@ fn interleaved_reads_and_write_from_multiple_clients() {
 struct ListenerState {
     listener: Listener,
     uut_addr: SocketAddr,
+    custom_accept_data: Vec<CustomAcceptData<MockTimer>>,
 }
 
-fn uut_listen() -> ListenerState {
+fn uut_listen(num_clients: u32) -> ListenerState {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let listener = Listener::bind(initial_addr).unwrap();
+    let custom_accept_data: Vec<_> = (0..num_clients)
+        .map(|_| {
+            let timer = Arc::new(MockTimer::new());
+            let init_seq_num = rand::random();
+            CustomAcceptData {
+                timer,
+                init_seq_num,
+            }
+        })
+        .collect();
+
+    let listener =
+        Listener::bind_custom(initial_addr, Some(custom_accept_data.clone()))
+            .unwrap();
+
     let uut_addr = listener.local_addr().unwrap();
 
-    ListenerState { listener, uut_addr }
+    ListenerState {
+        listener,
+        uut_addr,
+        custom_accept_data,
+    }
 }
 
 struct StreamState {
@@ -445,11 +547,15 @@ struct StreamState {
     uut_addr: SocketAddr,
     send_next: u32,
     receive_next: u32,
+    timer: Arc<MockTimer>,
 }
 
-fn uut_accept(listener_state: &ListenerState) -> StreamState {
+fn uut_accept(listener_state: &mut ListenerState) -> StreamState {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let uut_addr = listener_state.uut_addr;
+
+    let custom_accept_data = listener_state.custom_accept_data.remove(0);
+    let timer_connect = Arc::clone(&custom_accept_data.timer);
 
     let connect_client_thread = thread::spawn(move || {
         let client_socket = UdpSocket::bind(initial_addr).unwrap();
@@ -463,12 +569,14 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
         UdpSocket::connect(&client_socket, uut_addr).unwrap();
 
         // For seq num, always from UUT's POV
-        let mut receive_next = rand::random();
+        let mut receive_next = custom_accept_data.init_seq_num;
 
         // Send SYN
+        timer_connect.expect_stop();
         let syn = Segment::new_empty(Syn, receive_next, 0);
         send_segment_to(&client_socket, uut_addr, &syn);
         receive_next += 1;
+        timer_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client_socket, uut_addr);
@@ -495,12 +603,18 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
         uut_addr: listener_state.uut_addr,
         send_next,
         receive_next,
+        timer: custom_accept_data.timer,
     }
 }
 
 fn uut_write_with_tc_ack(stream_state: &mut StreamState, data: &[u8]) {
+    stream_state.timer.expect_start();
     uut_write(stream_state, data);
+    stream_state.timer.wait_for_call();
+
+    stream_state.timer.expect_stop();
     send_tc_ack(stream_state);
+    stream_state.timer.wait_for_call();
 }
 
 fn uut_write(stream_state: &mut StreamState, data: &[u8]) {
@@ -564,7 +678,9 @@ fn uut_shutdown_with_tc_ack__tc_still_connected(
     stream_state: &mut StreamState,
 ) {
     // Shutdown from the uut
+    stream_state.timer.expect_start();
     uut_stream(stream_state).shutdown();
+    stream_state.timer.wait_for_call();
 
     // Recv FIN from the uut
     let exp_fin = Segment::new_empty(
@@ -575,12 +691,14 @@ fn uut_shutdown_with_tc_ack__tc_still_connected(
     recv__expect_segment(&stream_state, &exp_fin);
     stream_state.send_next += 1;
 
+    stream_state.timer.expect_stop();
     let ack_to_fin = Segment::new_empty(
         Ack,
         stream_state.receive_next,
         stream_state.send_next,
     );
     send_segment(&stream_state, &ack_to_fin);
+    stream_state.timer.wait_for_call();
 }
 
 fn tc_shutdown(stream_state: &mut StreamState) {
