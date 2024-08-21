@@ -43,7 +43,7 @@ fn one_client() {
 }
 
 #[test]
-fn two_clients() {
+fn multiple_clients() {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -93,6 +93,34 @@ fn two_clients() {
     write_and_read(&mut client_stream2, &mut server_stream2, b"from client 2 to server 2");
 
     //////////////////////////////////////////////////////////////////
+    // Connect client 3
+    //////////////////////////////////////////////////////////////////
+
+    let connect_client_thread3 = thread::spawn(move || {
+        Stream::connect(server_addr).unwrap()
+    });
+    let (mut server_stream3, client3_addr) = listener.accept().unwrap();
+    let mut client_stream3 = connect_client_thread3.join().unwrap();
+
+    assert_eq!(client3_addr, client_stream3.local_addr().unwrap());
+    assert_eq!(server_addr, server_stream3.local_addr().unwrap());
+    assert_ne!(client3_addr, server_addr);
+
+    assert_ne!(client3_addr, client1_addr);
+    assert_ne!(client3_addr, client2_addr);
+
+    //////////////////////////////////////////////////////////////////
+    // Read and write
+    //////////////////////////////////////////////////////////////////
+
+    write_and_read(&mut server_stream1, &mut client_stream1, b"one");
+    write_and_read(&mut server_stream2, &mut client_stream2, b"two");
+    write_and_read(&mut server_stream3, &mut client_stream3, b"three");
+    write_and_read(&mut client_stream1, &mut server_stream1, b"ett");
+    write_and_read(&mut client_stream2, &mut server_stream2, b"tva");
+    write_and_read(&mut client_stream3, &mut server_stream3, b"tre");
+
+    //////////////////////////////////////////////////////////////////
     // Shutdown connection 1
     //////////////////////////////////////////////////////////////////
 
@@ -102,7 +130,7 @@ fn two_clients() {
     server_stream1.wait_shutdown_complete();
 
     //////////////////////////////////////////////////////////////////
-    // Read and write after connection 1 shutdown
+    // Read and write
     //////////////////////////////////////////////////////////////////
 
     write_and_read(&mut server_stream2, &mut client_stream2, b"hej");
@@ -116,6 +144,15 @@ fn two_clients() {
     server_stream2.shutdown();
     client_stream2.wait_shutdown_complete();
     server_stream2.wait_shutdown_complete();
+
+    //////////////////////////////////////////////////////////////////
+    // Shutdown connection 3
+    //////////////////////////////////////////////////////////////////
+
+    client_stream3.shutdown();
+    server_stream3.shutdown();
+    client_stream3.wait_shutdown_complete();
+    server_stream3.wait_shutdown_complete();
 
     listener.shutdown_all();
     listener.wait_shutdown_complete();
