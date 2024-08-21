@@ -229,12 +229,12 @@ fn one_client_proxy() {
             let (amt, recv_addr) = proxy_socket.recv_from(&mut buf).unwrap();
             let recv_data = &buf[0..amt];
 
-            let segment = Segment::decode(&buf[0..amt]).unwrap();
+            let segment = Segment::decode(recv_data).unwrap();
             println!("{:?}", segment);
 
             // Data from server
             if recv_addr == server_addr {
-                proxy_socket.send_to(&buf[0..amt], client_addr.unwrap()).unwrap();
+                proxy_socket.send_to(recv_data, client_addr.unwrap()).unwrap();
             }
             // Data from client
             else {
@@ -246,14 +246,10 @@ fn one_client_proxy() {
                     assert_eq!(Some(recv_addr), client_addr);
                 }
 
-                proxy_socket.send_to(&buf[0..amt], server_addr).unwrap();
+                proxy_socket.send_to(recv_data, server_addr).unwrap();
             }
         }
     });
-
-    // Let proxy have time to start
-    // TODO: Change to "ready" channel
-    std::thread::sleep(Duration::from_millis(1));
 
     let connect_client_thread = thread::spawn(move || {
         Stream::connect(proxy_addr).unwrap()
