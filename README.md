@@ -15,4 +15,5 @@ My own simplified TCP-like protocol that runs over UDP.
 - Test server and client together
 - Flow control/num unacked bytes
 - Example program, like netcat or an echo server
+- wrap around seq num
 
