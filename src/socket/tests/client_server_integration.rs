@@ -271,35 +271,28 @@ fn one_client_proxy() {
                 server_addr
             };
             proxy_socket.send_to(&recv_data, to).unwrap();
-            proxy_info_tx.send((recv_data, to)).unwrap();
+            proxy_info_tx.send((recv_addr, recv_data)).unwrap();
         }
     });
 
     let connect_client_thread =
         thread::spawn(move || Stream::connect(proxy_addr).unwrap());
 
-    let (mut server_stream, _client_addr_from_server) =
+    let (mut server_stream, client_addr_from_server) =
         listener.accept().unwrap();
     let mut client_stream = connect_client_thread.join().unwrap();
+    let client_addr = client_stream.local_addr().unwrap();
 
-    write_and_read(
-        &mut server_stream,
-        &mut client_stream,
-        b"hello from server",
-    );
-    write_and_read(
-        &mut client_stream,
-        &mut server_stream,
-        b"hello from client",
-    );
-
-    write_and_read(&mut client_stream, &mut server_stream, b"a");
-    write_and_read(&mut server_stream, &mut client_stream, b"b");
+    assert_eq!(proxy_addr, client_addr_from_server);
+    assert_ne!(proxy_addr, client_addr);
 
     write_and_read(&mut client_stream, &mut server_stream, b"short msg");
-    write_and_read(&mut server_stream, &mut client_stream, b"other");
+    write_and_read(&mut client_stream, &mut server_stream, b"from client");
+    write_and_read(&mut server_stream, &mut client_stream, b"from server");
+    write_and_read(&mut client_stream, &mut server_stream, b"client again");
 
     client_stream.shutdown();
+    std::thread::sleep(Duration::from_millis(1));
     server_stream.shutdown();
     client_stream.wait_shutdown_complete();
     server_stream.wait_shutdown_complete();
@@ -310,13 +303,43 @@ fn one_client_proxy() {
     loop {
         match proxy_info_rx.try_recv() {
             Ok(info) => proxy_info.push(info),
-            Err(_) => break
+            Err(_) => break,
         }
     }
 
-    for (data, to) in proxy_info {
-        println!("Sending '{:?}' to {:?}", Segment::decode(&data).unwrap(), to);
+    let exp_proxy_info =
+        vec![(client_addr, Syn, ""),
+             (server_addr, SynAck, ""),
+             (client_addr, Ack, ""),
+             (client_addr, Ack, "short msg"),
+             (server_addr, Ack, ""),
+             (client_addr, Ack, "from client"),
+             (server_addr, Ack, ""),
+             (server_addr, Ack, "from server"),
+             (client_addr, Ack, ""),
+             (client_addr, Ack, "client again"),
+             (server_addr, Ack, ""),
+             (client_addr, Fin, ""),
+             (server_addr, Ack, ""),
+             (server_addr, Fin, ""),
+             (client_addr, Ack, ""),
+        ];
+
+    let len_exp_proxy_info = exp_proxy_info.len();
+    let len_proxy_info = proxy_info.len();
+
+    for (exp, act) in std::iter::zip(exp_proxy_info, proxy_info) {
+        let (act_from, act_raw_data) = act;
+        let act_seg = Segment::decode(&act_raw_data).unwrap();
+        let act_kind = act_seg.kind();
+        let act_data = str::from_utf8(act_seg.data()).unwrap();
+
+        println!("{:?}", exp);
+
+        assert_eq!(exp, (act_from, act_kind, act_data));
     }
+
+    assert_eq!(len_exp_proxy_info, len_proxy_info);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
