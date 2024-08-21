@@ -105,6 +105,15 @@ struct CustomAcceptData<T> {
     init_seq_num: u32,
 }
 
+impl<T> Clone for CustomAcceptData<T> {
+    fn clone(&self) -> CustomAcceptData<T> {
+        CustomAcceptData {
+            timer: Arc::clone(&self.timer),
+            init_seq_num: self.init_seq_num,
+        }
+    }
+}
+
 impl Listener {
     pub fn bind<A: ToSocketAddrs>(local_addr: A) -> Result<Listener> {
         Self::bind_custom::<A, PlainTimer>(local_addr, None)
@@ -127,10 +136,11 @@ impl Listener {
                 let join_handle = thread::Builder::new()
                     .name("server".to_string())
                     .spawn(move || {
-                        let mut server =
-                            Server::new(Arc::clone(&udp_socket),
-                                        accept_tx,
-                                        custom_accept_data);
+                        let mut server = Server::new(
+                            Arc::clone(&udp_socket),
+                            accept_tx,
+                            custom_accept_data,
+                        );
 
                         block_on(server.server_loop(
                             Arc::clone(&udp_socket),
@@ -417,7 +427,7 @@ impl<T: Timer> Server<T> {
                                 mut connection,
                                 socket_send_rx,
                                 shutdown_complete_tx,
-                                timer
+                                timer,
                             )),
                         ) => {
                             futures.push(Box::pin(async move {
@@ -426,7 +436,9 @@ impl<T: Timer> Server<T> {
                                         connection.run(timer).await;
                                     }
                                     None => {
-                                        connection.run(Arc::new(PlainTimer {})).await;
+                                        connection
+                                            .run(Arc::new(PlainTimer {}))
+                                            .await;
                                     }
                                 };
 
@@ -499,7 +511,12 @@ impl<T: Timer> Server<T> {
         // TODO: Make return look better
     ) -> (
         bool,
-        Option<(Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<Arc<T>>)>,
+        Option<(
+            Connection,
+            Receiver<(Segment, SocketAddr)>,
+            Sender<()>,
+            Option<Arc<T>>,
+        )>,
     ) {
         // println!("handle_received_segment {:?}", segment);
         match segment.kind() {
@@ -519,13 +536,16 @@ impl<T: Timer> Server<T> {
         &mut self,
         segment: Segment,
         recv_addr: SocketAddr,
-    ) -> (Connection, Receiver<(Segment, SocketAddr)>, Sender<()>, Option<Arc<T>>) {
+    ) -> (
+        Connection,
+        Receiver<(Segment, SocketAddr)>,
+        Sender<()>,
+        Option<Arc<T>>,
+    ) {
         // println!("{:?}", "handle syn");
 
         let (mut send_next, timer) = match &mut self.custom_accept_data {
-            None => {
-                (rand::random(), None)
-            },
+            None => (rand::random(), None),
             Some(custom_accept_data) => {
                 let data = custom_accept_data.remove(0);
                 (data.init_seq_num, Some(data.timer))

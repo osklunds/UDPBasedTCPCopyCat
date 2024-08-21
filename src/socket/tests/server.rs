@@ -20,11 +20,12 @@ fn explicit_sequence_numbers_one_client() {
 
     let data1 = CustomAcceptData {
         timer: timer_cloned,
-        init_seq_num: 1000
+        init_seq_num: 1000,
     };
     let custom_accept_data = Some(vec![data1]);
 
-    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
+    let mut listener =
+        Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -161,7 +162,7 @@ fn explicit_sequence_numbers_two_clients() {
     let timer1_connect = Arc::clone(&timer1);
     let data1 = CustomAcceptData {
         timer: timer1_cloned,
-        init_seq_num: 1000
+        init_seq_num: 1000,
     };
 
     let timer2 = Arc::new(MockTimer::new());
@@ -169,11 +170,12 @@ fn explicit_sequence_numbers_two_clients() {
     let timer2_connect = Arc::clone(&timer2);
     let data2 = CustomAcceptData {
         timer: timer2_cloned,
-        init_seq_num: 5000
+        init_seq_num: 5000,
     };
     let custom_accept_data = Some(vec![data1, data2]);
 
-    let mut listener = Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
+    let mut listener =
+        Listener::bind_custom(initial_addr, custom_accept_data).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
     //////////////////////////////////////////////////////////////////
@@ -390,9 +392,10 @@ fn explicit_sequence_numbers_two_clients() {
 ////////////////////////////////////////////////////////////////////////////////
 
 #[test]
-fn reads_and_writes() {
-    let mut listener_state = uut_listen();
-    let mut stream_state = uut_accept(&listener_state);
+fn reads_and_writes_one_client() {
+    let mut listener_state = uut_listen(1);
+
+    let mut stream_state = uut_accept(&mut listener_state);
 
     uut_write_with_tc_ack(&mut stream_state, b"some data");
     uut_read(&mut stream_state, b"some data to read");
@@ -406,11 +409,12 @@ fn reads_and_writes() {
 
 #[test]
 fn reads_and_writes_multiple_clients() {
-    let mut listener_state = uut_listen();
+    let mut listener_state = uut_listen(3);
+
     // TODO: Interleaved accepts/reads/writes in other TC
-    let mut stream_state1 = uut_accept(&listener_state);
-    let mut stream_state2 = uut_accept(&listener_state);
-    let mut stream_state3 = uut_accept(&listener_state);
+    let mut stream_state1 = uut_accept(&mut listener_state);
+    let mut stream_state2 = uut_accept(&mut listener_state);
+    let mut stream_state3 = uut_accept(&mut listener_state);
 
     uut_write_with_tc_ack(&mut stream_state1, b"one");
     uut_write_with_tc_ack(&mut stream_state2, b"two");
@@ -434,33 +438,64 @@ fn reads_and_writes_multiple_clients() {
 
 #[test]
 fn interleaved_reads_and_write_from_multiple_clients() {
-    let mut listener_state = uut_listen();
+    let mut listener_state = uut_listen(3);
 
-    let mut stream_state1 = uut_accept(&listener_state);
-    let mut stream_state2 = uut_accept(&listener_state);
-    let mut stream_state3 = uut_accept(&listener_state);
+    let mut stream_state1 = uut_accept(&mut listener_state);
+    let mut stream_state2 = uut_accept(&mut listener_state);
+    let mut stream_state3 = uut_accept(&mut listener_state);
 
     // Random interleaved reads and writes
+    stream_state1.timer.expect_start();
     uut_write(&mut stream_state1, b"1");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"2");
+    stream_state2.timer.wait_for_call();
+
     uut_read(&mut stream_state3, b"3");
+
+    stream_state2.timer.expect_stop();
     send_tc_ack(&mut stream_state2);
+    stream_state2.timer.wait_for_call();
+
     uut_read(&mut stream_state2, b"4");
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"5");
+    stream_state2.timer.wait_for_call();
+
+    stream_state1.timer.expect_stop();
     send_tc_ack(&mut stream_state1);
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_stop();
     send_tc_ack(&mut stream_state2);
+    stream_state2.timer.wait_for_call();
 
     // For both streams, the server- and client-sides, respectivly,
     // write and read at the same time. I.e. packets passing each other
     // on the wire.
+    // TODO: But tc sends too high ack num in the reads, so testing
+    // cumulative ack rather than true simultaneous. Consider fixing this.
+    stream_state1.timer.expect_start();
     uut_write(&mut stream_state1, b"a");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_start();
     uut_write(&mut stream_state2, b"b");
-    uut_read(&mut stream_state1, b"c");
-    uut_read(&mut stream_state2, b"d");
+    stream_state2.timer.wait_for_call();
+
     uut_write(&mut stream_state1, b"e");
     uut_write(&mut stream_state2, b"f");
-    send_tc_ack(&mut stream_state1);
-    send_tc_ack(&mut stream_state2);
+
+    stream_state1.timer.expect_stop();
+    uut_read(&mut stream_state1, b"c");
+    stream_state1.timer.wait_for_call();
+
+    stream_state2.timer.expect_stop();
+    uut_read(&mut stream_state2, b"d");
+    stream_state2.timer.wait_for_call();
 
     shutdown(stream_state1);
     shutdown(stream_state2);
@@ -477,14 +512,33 @@ fn interleaved_reads_and_write_from_multiple_clients() {
 struct ListenerState {
     listener: Listener,
     uut_addr: SocketAddr,
+    custom_accept_data: Vec<CustomAcceptData<MockTimer>>,
 }
 
-fn uut_listen() -> ListenerState {
+fn uut_listen(num_clients: u32) -> ListenerState {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
-    let listener = Listener::bind(initial_addr).unwrap();
+    let custom_accept_data: Vec<_> = (0..num_clients)
+        .map(|_| {
+            let timer = Arc::new(MockTimer::new());
+            let init_seq_num = rand::random();
+            CustomAcceptData {
+                timer,
+                init_seq_num,
+            }
+        })
+        .collect();
+
+    let listener =
+        Listener::bind_custom(initial_addr, Some(custom_accept_data.clone()))
+            .unwrap();
+
     let uut_addr = listener.local_addr().unwrap();
 
-    ListenerState { listener, uut_addr }
+    ListenerState {
+        listener,
+        uut_addr,
+        custom_accept_data,
+    }
 }
 
 struct StreamState {
@@ -493,11 +547,15 @@ struct StreamState {
     uut_addr: SocketAddr,
     send_next: u32,
     receive_next: u32,
+    timer: Arc<MockTimer>,
 }
 
-fn uut_accept(listener_state: &ListenerState) -> StreamState {
+fn uut_accept(listener_state: &mut ListenerState) -> StreamState {
     let initial_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
     let uut_addr = listener_state.uut_addr;
+
+    let custom_accept_data = listener_state.custom_accept_data.remove(0);
+    let timer_connect = Arc::clone(&custom_accept_data.timer);
 
     let connect_client_thread = thread::spawn(move || {
         let client_socket = UdpSocket::bind(initial_addr).unwrap();
@@ -511,12 +569,14 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
         UdpSocket::connect(&client_socket, uut_addr).unwrap();
 
         // For seq num, always from UUT's POV
-        let mut receive_next = rand::random();
+        let mut receive_next = custom_accept_data.init_seq_num;
 
         // Send SYN
+        timer_connect.expect_stop();
         let syn = Segment::new_empty(Syn, receive_next, 0);
         send_segment_to(&client_socket, uut_addr, &syn);
         receive_next += 1;
+        timer_connect.wait_for_call();
 
         // Receive SYN-ACK
         let syn_ack = recv_segment_from(&client_socket, uut_addr);
@@ -543,12 +603,18 @@ fn uut_accept(listener_state: &ListenerState) -> StreamState {
         uut_addr: listener_state.uut_addr,
         send_next,
         receive_next,
+        timer: custom_accept_data.timer,
     }
 }
 
 fn uut_write_with_tc_ack(stream_state: &mut StreamState, data: &[u8]) {
+    stream_state.timer.expect_start();
     uut_write(stream_state, data);
+    stream_state.timer.wait_for_call();
+
+    stream_state.timer.expect_stop();
     send_tc_ack(stream_state);
+    stream_state.timer.wait_for_call();
 }
 
 fn uut_write(stream_state: &mut StreamState, data: &[u8]) {
@@ -612,7 +678,9 @@ fn uut_shutdown_with_tc_ack__tc_still_connected(
     stream_state: &mut StreamState,
 ) {
     // Shutdown from the uut
+    stream_state.timer.expect_start();
     uut_stream(stream_state).shutdown();
+    stream_state.timer.wait_for_call();
 
     // Recv FIN from the uut
     let exp_fin = Segment::new_empty(
@@ -623,12 +691,14 @@ fn uut_shutdown_with_tc_ack__tc_still_connected(
     recv__expect_segment(&stream_state, &exp_fin);
     stream_state.send_next += 1;
 
+    stream_state.timer.expect_stop();
     let ack_to_fin = Segment::new_empty(
         Ack,
         stream_state.receive_next,
         stream_state.send_next,
     );
     send_segment(&stream_state, &ack_to_fin);
+    stream_state.timer.wait_for_call();
 }
 
 fn tc_shutdown(stream_state: &mut StreamState) {
