@@ -995,6 +995,7 @@ impl Connection {
         user_action: core::result::Result<UserAction, async_channel::RecvError>,
     ) -> bool {
         // TODO: Add the number of blocks here to statistics
+        // TODO: Add unit test for this, when send buffer full
         let gate = self.send_buffer_gate_user.take().unwrap().pass().await;
         self.send_buffer_gate_user = Some(gate);
 
