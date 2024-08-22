@@ -851,10 +851,6 @@ impl Connection {
     }
 
     async fn handle_received_segment(&mut self, segment: Segment) -> bool {
-        // TODO: Add the number of blocks here to statistics
-        let gate = self.send_buffer_gate_user.take().unwrap().pass().await;
-        self.send_buffer_gate_user = Some(gate);
-
         // println!("handle {:?}", segment);
         let ack_num = segment.ack_num();
         let seq_num = segment.seq_num();
@@ -983,6 +979,10 @@ impl Connection {
         &mut self,
         user_action: core::result::Result<UserAction, async_channel::RecvError>,
     ) -> bool {
+        // TODO: Add the number of blocks here to statistics
+        let gate = self.send_buffer_gate_user.take().unwrap().pass().await;
+        self.send_buffer_gate_user = Some(gate);
+
         match user_action {
             Ok(UserAction::Shutdown) => {
                 let seg =
