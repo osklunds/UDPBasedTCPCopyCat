@@ -11,18 +11,25 @@ use futures::Future;
 fn test() {
     let (controller, user) = new();
 
-    block_on(async {
-        user.pass().await;
-        user.pass().await;
-    });
+    assert_can_pass(&user);
+    assert_can_pass(&user);
+    assert_can_pass(&user);
 
     controller.close();
 
+    assert_cannot_pass(&user);
+}
+
+fn assert_can_pass(user: &GateUser) {
+    block_on(async {
+        user.pass().await;
+    });
+}
+
+fn assert_cannot_pass(user: &GateUser) {
     block_on(async {
         assert_timeout(user.pass()).await;
     });
-
-    println!("{:?}", "done");
 }
 
 async fn assert_timeout<F: Future<Output = T>, T>(f: F) {
