@@ -48,9 +48,13 @@ impl GateController {
 }
 
 impl GateUser {
-    pub async fn pass(&self) {
+    // Takes ownership to prevent multiple tasks from try to pass at the same time
+    // Kind of like making it !Sync
+    pub async fn pass(self) -> Self {
         if self.close_rx.try_recv().is_ok() {
             self.open_rx.recv().await.unwrap();
         }
+
+        self
     }
 }

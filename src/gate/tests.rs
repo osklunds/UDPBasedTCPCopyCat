@@ -12,22 +12,22 @@ use futures::Future;
 fn test() {
     let (controller, user) = new();
 
-    assert_can_pass(&user);
-    assert_can_pass(&user);
-    assert_can_pass(&user);
+    let user = assert_can_pass(user);
+    let user = assert_can_pass(user);
+    let user = assert_can_pass(user);
 
     controller.close();
 
-    assert_cannot_pass(&user);
+    assert_cannot_pass(user);
 }
 
-fn assert_can_pass(user: &GateUser) {
+fn assert_can_pass(user: GateUser) -> GateUser {
     block_on(async {
-        user.pass().await;
-    });
+        user.pass().await
+    })
 }
 
-fn assert_cannot_pass(user: &GateUser) {
+fn assert_cannot_pass(user: GateUser) {
     block_on(async {
         let dur = Duration::from_millis(1);
         let result = future::timeout(dur, user.pass()).await;
