@@ -3,6 +3,9 @@ mod segment;
 #[allow(dead_code, unused_imports)]
 mod socket;
 
+#[allow(dead_code, unused_imports)]
+mod gate;
+
 use socket::Listener;
 use socket::Stream;
 
