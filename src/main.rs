@@ -120,13 +120,15 @@ fn print_speed(elapsed: f64, size_in_bytes: usize) {
 fn read_chunk(stream: &mut Stream) -> Vec<u8> {
     let mut buf = Vec::new();
 
+    let start = Instant::now();
+
     loop {
         let mut inner = [0; 4096];
         match stream.read(&mut inner).unwrap() {
             0 => return buf,
             n => {
                 buf.extend_from_slice(&inner[0..n]);
-                if buf.len() > BYTES_PER_MEGABYTE as usize {
+                if start.elapsed().as_millis() > 1000 {
                     return buf;
                 }
             }
