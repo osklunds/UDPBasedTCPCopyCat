@@ -4,6 +4,7 @@ use super::*;
 use std::time::Duration;
 
 use async_std::future;
+use async_std::future::TimeoutError;
 use futures::executor::block_on;
 use futures::Future;
 
@@ -28,11 +29,8 @@ fn assert_can_pass(user: &GateUser) {
 
 fn assert_cannot_pass(user: &GateUser) {
     block_on(async {
-        assert_timeout(user.pass()).await;
+        let dur = Duration::from_millis(1);
+        let result = future::timeout(dur, user.pass()).await;
+        assert!(result.is_err());
     });
-}
-
-async fn assert_timeout<F: Future<Output = T>, T>(f: F) {
-    let dur = Duration::from_millis(1);
-    assert!(future::timeout(dur, f).await.is_err());
 }
