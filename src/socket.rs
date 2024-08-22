@@ -27,6 +27,9 @@ use crate::gate::{self, GateController, GateUser};
 // Constants
 //////////////////////////////////////////////////////////////////
 
+// TODO: Make these settable by adding functions to Stream
+// Need to add a new UserAction channel, and let the old one
+// be just about data.
 const RETRANSMISSION_TIMER: Duration = Duration::from_millis(100);
 const MAXIMUM_SEGMENT_SIZE: u32 = 500;
 const MAXIMUM_RECV_BUFFER_SIZE: usize = 10;
