@@ -9,12 +9,26 @@ use futures::executor::block_on;
 use futures::Future;
 
 #[test]
-fn test() {
-    let (controller, user) = new();
+fn can_pass_after_creation() {
+    let (_controller, user) = new();
 
-    let user = assert_can_pass(user);
-    let user = assert_can_pass(user);
-    let user = assert_can_pass(user);
+    assert_can_pass(user);
+}
+
+#[test]
+fn can_pass_multiple_times() {
+    let (_controller, mut user) = new();
+
+    user = assert_can_pass(user);
+    user = assert_can_pass(user);
+    assert_can_pass(user);
+}
+
+#[test]
+fn cannot_pass_after_close() {
+    let (controller, mut user) = new();
+
+    user = assert_can_pass(user);
 
     controller.close();
 
