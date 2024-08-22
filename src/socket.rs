@@ -21,6 +21,7 @@ use std::time::Duration;
 
 use crate::segment::Kind::*;
 use crate::segment::Segment;
+use crate::gate::{self, GateController, GateUser};
 
 //////////////////////////////////////////////////////////////////
 // Constants
@@ -29,6 +30,7 @@ use crate::segment::Segment;
 const RETRANSMISSION_TIMER: Duration = Duration::from_millis(100);
 const MAXIMUM_SEGMENT_SIZE: u32 = 500;
 const MAXIMUM_RECV_BUFFER_SIZE: usize = 10;
+const MAXIMUM_SEND_BUFFER_SIZE: usize = 10;
 
 //////////////////////////////////////////////////////////////////
 // Timer
@@ -727,6 +729,10 @@ struct Connection {
     peer_action_tx: Sender<PeerAction>,
     user_action_rx: Arc<Receiver<UserAction>>,
 
+    // Send buffer handling
+    send_buffer_gate_controller: GateController,
+    send_buffer_gate_user: Option<GateUser>,
+
     // State
     timer_running: bool,
     send_next: u32,
@@ -752,6 +758,7 @@ impl Connection {
         send_next: u32,
         receive_next: u32,
     ) -> Self {
+        let (send_buffer_gate_controller, send_buffer_gate_user) = gate::new();
         Self {
             // Socket
             socket_send_tx,
@@ -761,6 +768,10 @@ impl Connection {
             // Channels
             peer_action_tx,
             user_action_rx: Arc::new(user_action_rx),
+
+            // Other
+            send_buffer_gate_controller,
+            send_buffer_gate_user: Some(send_buffer_gate_user),
 
             // State
             timer_running: false,
@@ -807,6 +818,8 @@ impl Connection {
                 _ = future_timeout => {
                     future_timeout.set(Self::timeout(&timer, false).fuse());
 
+                    // TODO: Add num timeouts to statistics
+                    
                     self.handle_retransmit().await;
                 }
             };
@@ -818,6 +831,12 @@ impl Connection {
             } else if !buffer_is_empty && !self.timer_running {
                 future_timeout.set(Self::timeout(&timer, false).fuse());
                 self.timer_running = true;
+            }
+
+            if self.send_buffer.len() >= MAXIMUM_SEND_BUFFER_SIZE {
+                self.send_buffer_gate_controller.close();
+            } else {
+                self.send_buffer_gate_controller.open();
             }
 
             if self.send_buffer.is_empty() && self.fin_sent && self.fin_received
@@ -832,6 +851,10 @@ impl Connection {
     }
 
     async fn handle_received_segment(&mut self, segment: Segment) -> bool {
+        // TODO: Add the number of blocks here to statistics
+        let gate = self.send_buffer_gate_user.take().unwrap().pass().await;
+        self.send_buffer_gate_user = Some(gate);
+
         // println!("handle {:?}", segment);
         let ack_num = segment.ack_num();
         let seq_num = segment.seq_num();
