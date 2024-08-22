@@ -340,6 +340,21 @@ fn one_client_proxy() {
     assert_eq!(len_exp_proxy_info, len_proxy_info);
 }
 
+// TODO: Failed once. To debug, use the commit this comment was added to
+// to make sure the bug hasn't been accidentally solved
+
+// ---- socket::tests::client_server_integration::one_client_proxy stdout ----
+// thread 'socket::tests::client_server_integration::one_client_proxy' panicked at src/socket/tests/client_server_integration.rs:337:9:
+// assertion `left == right` failed
+//   left: (127.0.0.1:52512, Ack, "")
+//  right: (127.0.0.1:33360, Fin, "")
+// note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+// failures:
+//     socket::tests::client_server_integration::one_client_proxy
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Helper functions
 ////////////////////////////////////////////////////////////////////////////////
