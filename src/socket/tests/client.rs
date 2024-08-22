@@ -337,7 +337,9 @@ fn af_uut_retransmits_data_and_fin() {
         initial_send_next + len + 1,
     );
 
+    state.timer.expect_start();
     send_segment(&state, &data_seg_ack);
+    state.timer.wait_for_call();
 
     state.timer.expect_stop();
     send_segment(&state, &fin_ack);
@@ -592,8 +594,13 @@ fn af_uut_retransmits_multiple_data_segments_due_to_timeout() {
         initial_send_next + len1 + len2 + len3,
     );
 
+    state.timer.expect_start();
     send_segment(&state, &ack1);
+    state.timer.wait_for_call();
+    
+    state.timer.expect_start();
     send_segment(&state, &ack2);
+    state.timer.wait_for_call();
 
     state.timer.expect_stop();
     send_segment(&state, &ack3);
@@ -640,9 +647,11 @@ fn af_uut_does_not_retransmit_data_due_to_old_ack() {
     recv__expect_segment(&state, &recv_seg2);
 
     // Now the tc sends ACK for both of them
+    state.timer.expect_start();
     let send_ack1 =
         Segment::new_empty(Ack, state.receive_next, initial_send_next + len1);
     send_segment(&state, &send_ack1);
+    state.timer.wait_for_call();
 
     state.timer.expect_stop();
     let send_ack2 = Segment::new_empty(
@@ -673,10 +682,10 @@ fn af_first_segment_acked_but_not_second() {
         Segment::new_empty(Ack, state.receive_next, initial_send_next + len1);
 
     // TC sends Ack for the first segment, but not the second.
+    // Note that timer is restarted since progress was made
+    state.timer.expect_start();
     send_segment(&state, &ack1);
-
-    // Needed to make sure ACK reaches before timer expires
-    std::thread::sleep(Duration::from_millis(1));
+    state.timer.wait_for_call();
 
     // But when the timer expires...
     state.timer.trigger();

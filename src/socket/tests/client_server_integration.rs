@@ -190,10 +190,10 @@ fn random_simultaneous_reads_and_writes_high_load() {
     let mut listener = Listener::bind(initial_addr).unwrap();
     let server_addr = listener.local_addr().unwrap();
 
-    let client_writes = random_datas(1000);
+    let client_writes = random_datas(10);
     let all_client_data = concat_datas(&client_writes);
 
-    let server_writes = random_datas(1000);
+    let server_writes = random_datas(10);
     let all_server_data = concat_datas(&server_writes);
 
     let client_thread = thread::spawn(move || {

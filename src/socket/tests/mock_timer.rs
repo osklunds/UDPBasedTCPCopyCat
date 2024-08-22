@@ -36,6 +36,8 @@ impl MockTimer {
 
     // Sleeping the retransmission timer length is the same as "timer starting"
     // because now the uut is waiting that time for some ACK.
+
+    // It can be both start and "restart" of the timer
     pub fn expect_start(&self) {
         self.expect_call(SleepDuration::Finite(RETRANSMISSION_TIMER));
     }

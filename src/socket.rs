@@ -800,22 +800,28 @@ impl Connection {
         );
 
         loop {
+            let mut made_progress = false;
+
             select! {
                 segment = future_recv_socket_receive => {
                     future_recv_socket_receive.set(socket_receive_rx.recv().fuse());
-                    if !self.handle_received_segment(segment.unwrap()).await {
+                    let (stop, mp) = self.handle_received_segment(segment.unwrap()).await;
+                    
+                    if stop {
                         return;
                     }
+                    made_progress = mp;
                 },
 
                 user_action = future_recv_user_action => {
                     future_recv_user_action.set(user_action_rx.recv().fuse());
-                    if !self.handle_received_user_action(user_action).await {
+                    if self.handle_received_user_action(user_action).await {
                         return;
                     }
                 },
 
                 _ = future_timeout => {
+                    // println!("{:?}", "timeout");
                     future_timeout.set(Self::timeout(&timer, false).fuse());
 
                     // TODO: Add num timeouts to statistics
@@ -828,7 +834,11 @@ impl Connection {
             if buffer_is_empty && self.timer_running {
                 future_timeout.set(Self::timeout(&timer, true).fuse());
                 self.timer_running = false;
-            } else if !buffer_is_empty && !self.timer_running {
+            } else if made_progress && self.timer_running {
+                future_timeout.set(Self::timeout(&timer, false).fuse());
+                self.timer_running = true;
+            }
+            else if !buffer_is_empty && !self.timer_running {
                 future_timeout.set(Self::timeout(&timer, false).fuse());
                 self.timer_running = true;
             }
@@ -850,7 +860,7 @@ impl Connection {
         }
     }
 
-    async fn handle_received_segment(&mut self, segment: Segment) -> bool {
+    async fn handle_received_segment(&mut self, segment: Segment) -> (bool, bool) {
         // println!("handle {:?}", segment);
         let ack_num = segment.ack_num();
         let seq_num = segment.seq_num();
@@ -879,19 +889,22 @@ impl Connection {
 
         let channel_closed = self.deliver_data_to_application().await;
 
-        self.removed_acked_segments(ack_num);
+        let made_progress = self.removed_acked_segments(ack_num);
 
         let ack_needed = len > 0 || kind == Fin;
         if ack_needed {
             self.send_ack().await;
         }
 
-        !channel_closed
+        (channel_closed, made_progress)
     }
 
-    fn removed_acked_segments(&mut self, ack_num: u32) {
+    fn removed_acked_segments(&mut self, ack_num: u32) -> bool {
         // println!("buffer before: {:?}", self.buffer);
         // println!("ack_num: {:?}", ack_num);
+
+        // TODO: Ensure tests for made_progress that test off-by-one
+        let mut made_progress = false;
         while self.send_buffer.len() > 0 {
             let first_unacked_segment = &self.send_buffer[0];
             let virtual_len = match first_unacked_segment.kind() {
@@ -913,11 +926,13 @@ impl Connection {
             // expect from you is number 5".
             if ack_num >= first_unacked_segment.seq_num() + virtual_len as u32 {
                 self.send_buffer.remove(0);
+                made_progress = true;
             } else {
                 break;
             }
         }
         // println!("buffer after: {:?}", self.buffer);
+        made_progress
     }
 
     fn add_to_recv_buffer(&mut self, segment: Segment) {
@@ -1011,17 +1026,17 @@ impl Connection {
                 }
             }
             Ok(UserAction::Close) => {
-                return false;
+                return true;
             }
             Ok(UserAction::Accept) => {
                 panic!("Accept for client")
             }
             Err(_) => {
-                return false;
+                return true;
             }
         }
 
-        return true;
+        return false;
     }
 
     async fn send_segment(&self, segment: &Segment) {
