@@ -16,4 +16,5 @@ My own simplified TCP-like protocol that runs over UDP.
 - Flow control/num unacked bytes
 - Example program, like netcat or an echo server
 - wrap around seq num
+- With proxy socket, for each packet, add a random delay and a random drop percentage, and a random duplication percentage. This way can test "real networks" within Rust code.
 
