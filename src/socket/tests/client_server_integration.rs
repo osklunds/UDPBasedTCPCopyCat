@@ -286,14 +286,26 @@ fn one_client_proxy() {
     assert_eq!(proxy_addr, client_addr_from_server);
     assert_ne!(proxy_addr, client_addr);
 
+    // The sleeps are needed to ensure the segment check in the end
+    // is deterministic
+    std::thread::sleep(Duration::from_millis(1));
     write_and_read(&mut client_stream, &mut server_stream, b"short msg");
+
+    std::thread::sleep(Duration::from_millis(1));
     write_and_read(&mut client_stream, &mut server_stream, b"from client");
+
+    std::thread::sleep(Duration::from_millis(1));
     write_and_read(&mut server_stream, &mut client_stream, b"from server");
+
+    std::thread::sleep(Duration::from_millis(1));
     write_and_read(&mut client_stream, &mut server_stream, b"client again");
 
+    std::thread::sleep(Duration::from_millis(1));
     client_stream.shutdown();
+
     std::thread::sleep(Duration::from_millis(1));
     server_stream.shutdown();
+
     client_stream.wait_shutdown_complete();
     server_stream.wait_shutdown_complete();
     listener.shutdown_all();
