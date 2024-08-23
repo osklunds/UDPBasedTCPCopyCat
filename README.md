@@ -2,6 +2,25 @@
 
 My own simplified TCP-like protocol that runs over UDP.
 
+The goal of this project is to implement a toy version of TCP that runs over UDP and provide an interface in Rust similar to the standard TCP interface. Hence, the following interface is provided (pseudo-code):
+
+```
+Listener::bind() -> Listener
+Listener::accept() -> Stream
+Stream::conenct() -> Stream
+Stream::write()
+Stream::read()
+```
+
+which is similar to [std::net::TcpListener](https://doc.rust-lang.org/std/net/struct.TcpListener.html) and [std::net::TcpStream](https://doc.rust-lang.org/std/net/struct.TcpStream.html).
+
+`main.rs` implements a small demo application that utilizes my protocol.
+`segment.rs` handles encoding and decoding segments.
+`socket.rs` handles the protocol logic and provides interfaces for writing and reading data over the network.
+`socket/tests/client.rs` contains tests for the client side as well as aspects that are the same for both client and server (i.e., *most* things). Since most things are the same for the server side and the client side, and they share the same code, they are only tested once through the client side.
+`socket/tests/server.rs` contains tests for the server side.
+`socket/tests/client_server_integration.rs` contains tests where the client and server connect to each other.
+
 **Noteworthy features:**
 
 - *Handles packet loss, packet duplication and out-of-order packets.*
@@ -14,7 +33,7 @@ My own simplified TCP-like protocol that runs over UDP.
 
 - *Hardcoded retransmission timer and send buffer size.* In TCP, these are dynamically adjusted based on the network to ensure maximum speeed. With hardcoded values, it may happen that the sender sends either too slow or too fast, resulting in network overload and packet loss.
 - *Slow.* While this protocol does work, it's much slower than the real deal.
-- *Missing scenarios and tests.* The implementation does not handle all variants (e.g. packet loss) in the handshake and shutdown phases. It also doesn't handle intentionally incorrect packets, e.g. non-sense sequence numbers or a FIN during the three-way handshake.
+- *Missing scenarios and tests.* The implementation doesn't handle all variants (e.g. packet loss) in the handshake and shutdown phases. It also doesn't handle intentionally incorrect packets, e.g. nonsense sequence numbers or a FIN during the three-way handshake.
 - *Many TODOs.*
 
 **Other ideas I wanna work on:**
