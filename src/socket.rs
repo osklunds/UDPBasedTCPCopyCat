@@ -792,8 +792,8 @@ impl Connection {
         let future_recv_socket_receive = socket_receive_rx.recv().fuse();
 
         let user_action_rx = Arc::clone(&self.user_action_rx);
-        let future_recv_user_action = user_action_rx.recv().fuse();
-
+        let gate = self.send_buffer_gate_user.take().unwrap();
+        let future_recv_user_action = Self::recv_user_action(&user_action_rx, gate).fuse();
         let future_timeout = Self::timeout(&timer, true).fuse();
 
         pin_mut!(
@@ -816,8 +816,8 @@ impl Connection {
                     made_progress = mp;
                 },
 
-                user_action = future_recv_user_action => {
-                    future_recv_user_action.set(user_action_rx.recv().fuse());
+                (user_action, gate) = future_recv_user_action => {
+                    future_recv_user_action.set(Self::recv_user_action(&user_action_rx, gate).fuse());
                     if self.handle_received_user_action(user_action).await {
                         return;
                     }
@@ -861,6 +861,13 @@ impl Connection {
                 return;
             }
         }
+    }
+
+    async fn recv_user_action(user_action_rx: &Receiver<UserAction>, gate: GateUser) -> (core::result::Result<UserAction, async_channel::RecvError>, GateUser) {
+        let user_action = user_action_rx.recv().await;
+        // TODO: Add the number of blocks here to statistics
+        let new_gate = gate.pass().await;
+        (user_action, new_gate)
     }
 
     async fn handle_received_segment(&mut self, segment: Segment) -> (bool, bool) {
@@ -997,10 +1004,6 @@ impl Connection {
         &mut self,
         user_action: core::result::Result<UserAction, async_channel::RecvError>,
     ) -> bool {
-        // TODO: Add the number of blocks here to statistics
-        // TODO: Add unit test for this, when send buffer full
-        let gate = self.send_buffer_gate_user.take().unwrap().pass().await;
-        self.send_buffer_gate_user = Some(gate);
 
         match user_action {
             Ok(UserAction::Shutdown) => {

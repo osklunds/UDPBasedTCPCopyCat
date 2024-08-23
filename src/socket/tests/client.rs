@@ -967,6 +967,107 @@ fn af_out_of_order_receive_buffer_full() {
 }
 
 #[test]
+fn af_send_buffer_full() {
+    let mut state = setup_connected_uut();
+
+    uut_write_with_tc_ack(&mut state, b"hej");
+    uut_read(&mut state, b"yo");
+
+    let mut segments = Vec::new();
+    let num_segments = MAXIMUM_SEND_BUFFER_SIZE as u32;
+    let len = 20;
+
+    // For all segments that fit in the send buffer, uut sends them and the tc
+    // receives them.
+    for segment_index in 0..num_segments as u32 {
+        if segment_index == 0 {
+            state.timer.expect_start();
+        }
+
+        let data = random_data_of_length(len);
+        let accumlative_len = segment_index * len;
+
+        // Send from the uut
+        let written_len = uut_stream(&mut state).write(&data).unwrap();
+        assert_eq!(data.len(), written_len);
+
+        if segment_index == 0 {
+            state.timer.wait_for_call();
+        }
+
+        // Recv in the tc
+        let seg = Segment::new(
+            Ack,
+            state.send_next + accumlative_len,
+            state.receive_next,
+            &data
+        );
+        recv__expect_segment(&state, &seg);
+
+        segments.push(seg);
+    }
+
+    // But once the send buffer is full, the uut does not send anything
+    let overfull_data1 = b"overfull_data1";
+    let written_len = uut_stream(&mut state).write(overfull_data1).unwrap();
+    assert_eq!(overfull_data1.len(), written_len);
+
+    let overfull_data2 = b"overfull_data2";
+    let written_len = uut_stream(&mut state).write(overfull_data2).unwrap();
+    assert_eq!(overfull_data2.len(), written_len);
+
+    recv__expect_no_data(&state.tc_socket);
+
+    // Once the first segment is acked...
+    state.timer.expect_start();
+    let ack1 = Segment::new_empty(Ack, state.receive_next, state.send_next + len);
+    send_segment(&state, &ack1);
+    state.timer.wait_for_call();
+
+    // ...uut sends one more segment from the send buffer
+    let seg_overfull1 = Segment::new(
+        Ack,
+        state.send_next + num_segments * len,
+        state.receive_next,
+        overfull_data1
+    );
+    recv__expect_segment(&state, &seg_overfull1);
+    recv__expect_no_data(&state.tc_socket);
+
+    // Once the rest is acked...
+    state.timer.expect_start();
+    let ack2 = Segment::new_empty(
+        Ack,
+        state.receive_next,
+        state.send_next + num_segments * len,
+    );
+    send_segment(&state, &ack2);
+    state.timer.wait_for_call();
+
+    // ...uut sends the last segment
+    let seg_overfull2 = Segment::new(
+        Ack,
+        state.send_next + num_segments * len + overfull_data1.len() as u32,
+        state.receive_next,
+        overfull_data2
+    );
+    recv__expect_segment(&state, &seg_overfull2);
+
+    state.timer.expect_stop();
+    let ack3 = Segment::new_empty(
+        Ack,
+        state.receive_next,
+        state.send_next + num_segments * len + (overfull_data1.len() + overfull_data2.len()) as u32,
+    );
+    send_segment(&state, &ack3);
+    state.timer.wait_for_call();
+
+    state.send_next = ack3.ack_num();
+
+    shutdown(state);
+}
+
+#[test]
 fn af_too_small_read_buffer() {
     let mut state = setup_connected_uut();
 

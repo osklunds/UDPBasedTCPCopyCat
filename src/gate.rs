@@ -10,6 +10,7 @@ pub fn new() -> (GateController, GateUser) {
     let controller = GateController {
         close_tx,
         open_tx,
+        open_rx: open_rx.clone(),
     };
     let user = GateUser {
         close_rx,
@@ -22,6 +23,7 @@ pub fn new() -> (GateController, GateUser) {
 pub struct GateController {
     close_tx: Sender<()>,
     open_tx: Sender<()>,
+    open_rx: Receiver<()>,
 }
 
 pub struct GateUser {
@@ -35,6 +37,12 @@ impl GateController {
     }
 
     pub fn close(&self) {
+        match self.open_rx.try_recv() {
+            Ok(_) => (),
+            Err(TryRecvError::Empty) => (),
+            Err(TryRecvError::Closed) => panic!("Closed"),
+            
+        };
         self.try_send(&self.close_tx);
     }
 

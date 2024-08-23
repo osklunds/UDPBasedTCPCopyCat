@@ -59,6 +59,31 @@ fn cannot_pass_after_multiple_closes() {
 }
 
 #[test]
+fn cannot_pass_after_open_then_close() {
+    let (controller, mut user) = new();
+
+    user = assert_can_pass(user);
+
+    controller.open();
+    controller.close();
+
+    assert_cannot_pass(user);
+}
+
+#[test]
+fn can_pass_after_open_then_close_then_open() {
+    let (controller, mut user) = new();
+
+    user = assert_can_pass(user);
+
+    controller.open();
+    controller.close();
+    controller.open();
+
+    assert_can_pass(user);
+}
+
+#[test]
 fn can_pass_after_single_open() {
     let (controller, mut user) = new();
 
