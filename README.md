@@ -15,10 +15,15 @@ Stream::read()
 which is similar to [std::net::TcpListener](https://doc.rust-lang.org/std/net/struct.TcpListener.html) and [std::net::TcpStream](https://doc.rust-lang.org/std/net/struct.TcpStream.html).
 
 `main.rs` implements a small demo application that utilizes my protocol.
-`segment.rs` handles encoding and decoding segments.
+
+`segment.rs` handles encoding and decoding of segments.
+
 `socket.rs` handles the protocol logic and provides interfaces for writing and reading data over the network.
-`socket/tests/client.rs` contains tests for the client side as well as aspects that are the same for both client and server (i.e., *most* things). Since most things are the same for the server side and the client side, and they share the same code, they are only tested once through the client side.
+
+`socket/tests/client.rs` contains tests for the client side as well as aspects that are the same for both client and server. Since most things are the same for the server side and the client side, and they share the same code, they are only tested once through the client side.
+
 `socket/tests/server.rs` contains tests for the server side.
+
 `socket/tests/client_server_integration.rs` contains tests where the client and server connect to each other.
 
 **Noteworthy features:**
